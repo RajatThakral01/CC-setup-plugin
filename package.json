@@ -17,7 +17,8 @@
     "db:health": "tsx --conditions=source scripts/db-health.ts",
     "db:migrate": "tsx --conditions=source scripts/db-migrate.ts",
     "db:generate": "pnpm --filter @cc-setup-agent/db db:generate",
-    "pipeline": "tsx --conditions=source apps/pipeline/src/cli.ts"
+    "pipeline": "tsx --conditions=source apps/pipeline/src/cli.ts",
+    "ci:status": "tsx --conditions=source scripts/ci-status.ts"
   },
   "devDependencies": {
     "@cc-setup-agent/core": "workspace:*",
@@ -31,6 +32,7 @@
     "tsx": "^4.23.15",
     "typescript": "~6.0.3",
     "typescript-eslint": "^8.71.2",
-    "vitest": "^5.0.5"
+    "vitest": "^5.0.5",
+    "zod": "^4.6.7"
   }
 }
