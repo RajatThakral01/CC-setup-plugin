@@ -1,0 +1,67 @@
+# Vendor allowlist (owner-maintained). Repos owned by these GitHub orgs count as official vendors:
+# they skip the intake star threshold (PRD FR-D10) and get intake priority; gate 1 (M4) uses them
+# for provenance. First version (2026-10-19) derived from the owner-approved seed list: orgs whose
+# entries were verified as official or vendor-published, plus anthropics. Review and edit freely.
+github_orgs:
+  - 21st-dev
+  - anthropics
+  - atlassian
+  - auth0
+  - awslabs
+  - brave
+  - browser-use
+  - browserbase
+  - ChromeDevTools
+  - clerk
+  - cloudflare
+  - coderabbitai
+  - contentful
+  - convex
+  - currents-dev
+  - datadog-labs
+  - exa-labs
+  - figma
+  - firecrawl
+  - getsentry
+  - github
+  - googleapis
+  - GoogleChrome
+  - grafana
+  - greptileai
+  - heroui-inc
+  - honeycombio
+  - jina-ai
+  - meilisearch
+  - microsoft
+  - modelcontextprotocol
+  - mongodb
+  - mongodb-js
+  - neondatabase
+  - netlify
+  - perplexityai
+  - planetscale
+  - PostHog
+  - prisma
+  - qodo-ai
+  - railwayapp
+  - redis
+  - render-oss
+  - resend
+  - sanity-io
+  - shadcn-ui
+  - SonarSource
+  - stripe
+  - supabase
+  - superdesigndev
+  - tavily-ai
+  - testdino-hq
+  - trailofbits
+  - upstash
+  - vercel
+  - vercel-labs
+  - workos
+
+# MCP Registry namespaces (reverse-DNS, e.g. com.example) whose entries also skip the star
+# threshold. The Registry has no "verified publisher" flag (every namespace is ownership-verified),
+# so only namespaces listed here are treated as vendors. Empty until the owner adds some.
+registry_namespaces: []

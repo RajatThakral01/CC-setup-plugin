@@ -21,6 +21,7 @@ import {
   CATEGORIES,
   CLASSIFICATION_STATES,
   CONFIDENCES,
+  INTAKE_STATES,
   KINDS,
   PROVENANCES,
   SOURCES,
@@ -40,6 +41,8 @@ export const sourceEnum = pgEnum('record_source', SOURCES);
 export const confidenceEnum = pgEnum('confidence', CONFIDENCES);
 export const budgetPurposeEnum = pgEnum('budget_purpose', BUDGET_PURPOSES);
 export const classificationStateEnum = pgEnum('classification_state', CLASSIFICATION_STATES);
+export const intakeStateEnum = pgEnum('intake_state', INTAKE_STATES);
+export const sourceRunStatusEnum = pgEnum('source_run_status', ['running', 'ok', 'failed']);
 
 const createdAt = () => timestamp('created_at', { withTimezone: true }).notNull().defaultNow();
 
@@ -101,11 +104,39 @@ export const rawSourceRecords = pgTable(
     payload: jsonb('payload').$type<unknown>().notNull(),
     fetchedAt: timestamp('fetched_at', { withTimezone: true }).notNull().defaultNow(),
     itemId: text('item_id').references(() => catalogItems.id),
+    // Intake filter state (PRD FR-D10).
+    intakeState: intakeStateEnum('intake_state').notNull().default('pending'),
+    intakeReasons: text('intake_reasons')
+      .array()
+      .notNull()
+      .default(sql`'{}'::text[]`),
+    intakeCheckedAt: timestamp('intake_checked_at', { withTimezone: true }),
+    // Star tracking for repo-backed records, so velocity is known before an item exists.
+    stars: integer('stars'),
+    starsCheckedAt: timestamp('stars_checked_at', { withTimezone: true }),
+    starVelocity7d: real('star_velocity_7d'),
   },
   (t) => [
     uniqueIndex('raw_source_records_source_external_id_uq').on(t.source, t.externalId),
     index('raw_source_records_item_id_idx').on(t.itemId),
+    index('raw_source_records_intake_idx').on(t.intakeState),
   ],
+);
+
+/** One row per source per discovery run, so a failing source is visible (NFR-4, PRD 17.1). */
+export const sourceRuns = pgTable(
+  'source_runs',
+  {
+    id: bigserial('id', { mode: 'number' }).primaryKey(),
+    source: text('source').notNull(),
+    status: sourceRunStatusEnum('status').notNull().default('running'),
+    startedAt: timestamp('started_at', { withTimezone: true }).notNull().defaultNow(),
+    finishedAt: timestamp('finished_at', { withTimezone: true }),
+    since: timestamp('since', { withTimezone: true }),
+    records: integer('records').notNull().default(0),
+    error: text('error'),
+  },
+  (t) => [index('source_runs_source_started_idx').on(t.source, t.startedAt)],
 );
 
 export const signalSnapshots = pgTable(

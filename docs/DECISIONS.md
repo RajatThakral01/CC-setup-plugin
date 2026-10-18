@@ -7,7 +7,7 @@ Choices not fully covered by the PRD or plan, with reasons. Newest milestone at 
 - **Session workflow:** owner sets a milestone range per session (first range: M0–M3); questions batched up front; one commit per milestone. Recorded in `CLAUDE.md` and plan 1.2 rule 1.
 - **Categories:** added `auth`, `payments`, `email`, `cms` to the 10 starting categories. Stripe → payments; Clerk, Auth0, WorkOS → auth; Resend → email; Sanity, Contentful → cms.
 - **Seed list:** 117 proposed entries approved (all except `anthropics/claude-code-action`, which is a GitHub Action, not a setup item).
-- **Discovery sources (FR-D5):** the 7 structured `marketplace.json` files (Anthropic official, `anthropics/claude-code`, `anthropics/skills`, Vercel, Sentry, Grafana) plus the MCP Registry (FR-D2). Excluded for now: Anthropic community marketplace, awesome-lists, npm search, README scraping.
+- **Discovery sources (FR-D5):** the structured `marketplace.json` files of Anthropic official, `anthropics/claude-code`, `anthropics/skills`, Vercel, Sentry and Grafana (six; the batch question said "7" but named these six, the seventh in the research file being the excluded community marketplace), plus the MCP Registry (FR-D2). Excluded for now: Anthropic community marketplace, awesome-lists, npm search, README scraping.
 - **Candidate intake filter (amends FR-D10):** every raw record is stored; a record becomes a `candidate` only if: not a fork, not archived, has a licence and description, ≥ 10 stars. Registry entries must be the latest version and have a repo URL. Repos owned by orgs in `catalog/vendors.yaml` and MCP Registry verified publishers skip the star threshold. At most 30 new candidates per day, priority: vendor-allowlisted, then star velocity, then stars. Stored raw records are re-checked daily. PRD FR-D10 updated.
 - **Budget:** weekly cap `WEEKLY_BUDGET_USD=20` (classification share `BUDGET_SPLIT_CLASSIFY_USD=3`) **and** a whole-build cap `TOTAL_BUDGET_USD=40` across all weeks and purposes; warn in logs and reports above `TOTAL_BUDGET_WARN_USD=30`; hard stop at 40. The ledger enforces both. Total spend to date goes in every milestone report.
 - **Git/CI:** local git only, one commit per milestone, never push. CI workflow is written and proven locally; the owner pushes to a private GitHub repo.
@@ -109,6 +109,46 @@ Defaults in `packages/shared/src/config.ts`; override with `MODEL_PRICING_JSON`.
 - **Item ids:** `<owner>-<repo>` for repos, `<owner>-<repo>-<folder>` for folders, scope + name for npm packages; `-2`, `-3`… on collision.
 - **Live import (2026-10-19):** 117 created, 0 skipped, 0 failed; second run 0 created, 117 duplicates.
 
+## Milestone 3
+
+**Sources (verified live 2026-10-19)**
+
+- **MCP Registry:** `GET {MCP_REGISTRY_URL}/servers?updated_since=…&limit=100&version=latest&cursor=…` (`https://registry.modelcontextprotocol.io/v0.1`). Response `{servers: [{server, _meta: {"io.modelcontextprotocol.registry/official": {isLatest, status, updatedAt…}}}], metadata: {nextCursor}}`. Volume is high: ~1,200 latest servers updated in one day, 6,000+ in a week, ~60% with a repo URL. External id = server `name`; `version=latest` keeps one record per server.
+- **"Verified publisher" in the Registry:** the API has no such flag. Every namespace is ownership-verified (`io.github.<user>` via GitHub login, reverse-DNS via domain), so "verified" would include anyone with a domain. Decision: only namespaces listed in `catalog/vendors.yaml` → `registry_namespaces` skip the star threshold (empty for now). **Owner may want to change this.**
+- **Repo facts via GitHub GraphQL**, 50 repos per query (`repository(owner,name)` aliases with variables), instead of one REST call per repo. Missing repos come back `null` with `NOT_FOUND` errors. ~6,000 Registry entries cost ~80 GraphQL queries.
+- **GitHub search (FR-D3):** `topic:<t> pushed:>=<now−7d>` for each of `mcp-server`, `claude-code`, `claude-skills`, `claude-code-plugin`, sorted by updated, 100 per page, up to 10 pages (search returns at most 1,000), 2.5 s between calls (search limit 30/min). Always a fixed 7-day window, so repeated sightings update star velocity. Raw records share the `github_repo` key (repo id) with seed records.
+- **Marketplaces (FR-D5):** `catalog/sources.yaml` lists the six approved `marketplace.json` URLs. Plugin `source` forms handled: relative path (`./plugins/x`, with optional `metadata.pluginRoot`), `{source: "github", repo}`, `{source: "url", url}`, `{source: "git-subdir", url, path, ref}`; `npm` and others resolve to no repo and are filtered. External id `<marketplace name>:<plugin name>`. Several plugins pointing at one repo root (e.g. `anthropics/skills`) collapse into one entity.
+- **Changelog (FR-D1):** `CHANGELOG.md` from `{GITHUB_RAW_URL}/{CLAUDE_CODE_REPO}/main/` split on `## <version>`, newest `CHANGELOG_MAX_VERSIONS` (30), plus GitHub releases. Flags: `plugins`, `mcp`, `settings`, `hooks`, `skills`, `models`. Stored in `claude_code_changes`, never as catalog items.
+- **All endpoints come from config** (`GITHUB_API_URL`, `GITHUB_RAW_URL`, `NPM_REGISTRY_URL`, `MCP_REGISTRY_URL`, `CLAUDE_CODE_REPO`); the M2 clients were changed to take base URLs.
+
+**Intake (PRD FR-D10)**
+
+- **Raw record columns added:** `intake_state` (`pending` / `accepted` / `linked` / `filtered` / `deferred` / `not_applicable`), `intake_reasons[]`, `intake_checked_at`, `stars`, `stars_checked_at`, `star_velocity_7d`. Migration `0001` also marks existing seed records `linked` and the npm-backing repos `not_applicable`.
+- **Licence:** any detected licence counts, including GitHub's `NOASSERTION` ("Other"). **Description:** the source's description, else the repo's.
+- **Records without a GitHub repo** (remote-only Registry servers, non-GitHub hosts, npm-only plugins) are filtered (`no_repo_url` / `repo_unavailable`), since stars, licence and fork status can't be checked.
+- **Star velocity** = stars gained per 7 days since the last observation at least a day old; with no history, the lifetime average since repo creation (at least one week). Used for intake priority and written to `signal_snapshots` for linked items.
+- **Daily cap** counts `status_events` creation rows with reason `discovery intake…` since UTC midnight; candidates over the cap become `deferred` and compete again the next day.
+- **Daily re-check:** `filtered`/`deferred` records are re-evaluated every run from stored data; up to `INTAKE_REFRESH_LIMIT` (200) records filtered only for stars, not refreshed in 20 h, get fresh repo facts via GraphQL.
+- **Dedupe (FR-D8):** canonical source URL (case-insensitive) or package name; matches become `linked` to the existing item. Within a run, the first passing record creates the item and later ones link to it.
+- **`catalog/vendors.yaml`** created now (plan had it in M4) because the intake exception needs it: 57 GitHub orgs taken from the owner-approved seed entries verified as official or vendor-published, plus `anthropics`. Owner-maintained from here on.
+
+**Classification (FR-D9)**
+
+- **LLM client in `packages/core`** requires a `BudgetGuard`; `packages/db` provides the ledger-backed guard, so no Anthropic call can bypass the ledger. Order per call: model allow-list check → budget pre-flight (conservative estimate: ~3 chars/token + `max_tokens`) → API call → ledger row with actual usage (always, even if the output is unusable).
+- **Request shape (verified live, `claude-haiku-5-5`):** `messages.create` with `system` as a cached text block (`cache_control: ephemeral`), `thinking: {type: "disabled"}`, `output_config: {effort: "low", format: {type: "json_schema", schema}}`. The schema comes from zod via `z.toJSONSchema`, with keywords structured outputs reject (`maxItems`, `maxLength`, `minimum`, `pattern`, …) stripped; zod still validates the full constraints. First live call: 785 input + 1,709 cache-write + 104 output tokens = USD 0.000344.
+- **Not `messages.parse`:** `create` + our own zod parse guarantees usage is recorded even when parsing fails.
+- **Output:** `kind`, `category` (nullable), `stacks` (from `nextjs`, `react`, `node`, `python`, `any`), `summary`, `provenance_guess`, plus `relevant` (false for apps, SDKs, demos — useful in triage). Prompt version `classify-v1`. README excerpt ≤ 4,000 chars inside a `<tool>` block marked as untrusted data.
+- **Retry once** on invalid output or refusal, then `needs_manual_classification`. Budget exhaustion stops the run and leaves items `pending` (queued). Three consecutive API errors also stop it.
+- **Fields applied only when empty**, so owner seed hints win; classification is always stored in full.
+
+**Scheduling and operations**
+
+- **pg-boss 12** queue `discovery-daily`, `schedule(…, DISCOVERY_CRON = "0 2 * * *", {}, {tz: "UTC"})`; `pnpm run pipeline worker` runs it. The job is discover → intake → classify; each stage runs even if a source failed.
+- **`source_runs` table** records start, end, status, record count and error per source, for NFR-4 and the PRD 17.1 "source failing for 24 h" alert later.
+- **CLI:** `discover [--source …] [--no-intake] [--no-classify]`, `intake`, `classify [--limit n]`, `worker`, `spend`.
+- **`@cc-setup-agent/db` re-exports drizzle operators:** pg-boss pulled in a peer that created a second `drizzle-orm` copy, which broke types when the pipeline imported drizzle directly.
+- **Contract fixtures** (`test/fixtures/sources/`) keep the exact structure of real responses recorded on 2026-10-19, with names replaced by `example-*` per the fixture rule.
+
 ## Dependencies
 
 One line each: why it was added.
@@ -125,3 +165,5 @@ One line each: why it was added.
 - `drizzle-orm` — ORM and migrator (plan section 3).
 - `drizzle-kit` (dev) — generates SQL migrations from the schema (plan section 3).
 - `yaml` — parse `catalog/seed.yaml` (and later `sources.yaml`, `vendors.yaml`).
+- `@anthropic-ai/sdk` — Anthropic API client for classification (plan section 3).
+- `pg-boss` — Postgres-backed scheduler for the daily discovery job (plan section 3).

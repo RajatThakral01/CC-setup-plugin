@@ -3,8 +3,8 @@
 ## Current state
 
 - **Session range:** Milestones 0–3 (owner-approved 2026-10-19).
-- **Current milestone:** 3 — Discovery jobs.
-- **Total Anthropic API spend to date:** USD 0.00 (no API calls yet).
+- **Current milestone:** 4 — Credibility gates 0 to 3 (not started; session range 0–3 complete, awaiting owner).
+- **Total Anthropic API spend to date:** USD 0.0313 (148 Haiku classification calls, 2026-10-19). Weekly cap USD 20, total cap USD 40.
 
 ## Milestones
 
@@ -13,7 +13,7 @@
 | 0   | Repo and tooling            | Done   | M0     |
 | 1   | Shared schemas and database | Done   | M1     |
 | 2   | Seed catalog importer       | Done   | M2     |
-| 3   | Discovery jobs              | Next   |        |
+| 3   | Discovery jobs              | Done   | M3     |
 | 4   | Credibility gates 0 to 3    |        |        |
 | 5   | Triage UI                   |        |        |
 | 6   | Signed catalog snapshot     |        |        |
@@ -73,6 +73,25 @@ Acceptance:
 
 Tests: importer with mocked GitHub and npm (created repo/folder/npm, renamed repo, 404 repo/folder/package, archived, deprecated, npm-with-archived-repo, duplicate, persistent 500, unsupported URL, second run), URL parsing. 215 tests total.
 
+## Milestone 3 — Discovery jobs (done)
+
+Built:
+
+- Sources: Claude Code changelog + releases (FR-D1, into `claude_code_changes` with topic flags), MCP Registry (FR-D2), GitHub topic search (FR-D3), six official marketplaces from `catalog/sources.yaml` (FR-D5). Repo facts via batched GitHub GraphQL.
+- Dedupe by canonical URL / package name (FR-D8); intake filter, vendor exception, daily cap of 30 with priority, deferral and daily re-check (FR-D10 as amended); star velocity; `signal_snapshots` for linked items.
+- Haiku classification (FR-D9) through a ledger-guarded LLM client: structured JSON output, cached system prompt, retry once then `needs_manual_classification`, stops at the budget cap.
+- `source_runs` table; pg-boss worker scheduling discovery daily at 02:00 UTC; CLI `discover`, `intake`, `classify`, `worker`, `spend`.
+- `catalog/vendors.yaml` (57 orgs from approved seed entries) and `catalog/sources.yaml`.
+
+Acceptance:
+
+- [x] A full run on live APIs completes, inserts new candidates and creates no duplicates on a second run. Live run 1 (2026-10-19): 4/4 sources ok (Registry 7,376, GitHub search 3,571, marketplaces 339, changelog 60 records); 30 candidates accepted, 1,300 deferred, 9,910 filtered; 146 items classified, 0 failures. Run 2: 0 new items, 147 items / 147 distinct URLs.
+- [x] A failed source does not block other sources (NFR-4): tested; each source gets a `source_runs` row.
+- [x] Classification spend is recorded per call and stops at the cap: tested with a tiny cap; live spend USD 0.0313, one ledger row per call.
+
+Tests: normalisers against anonymised recorded responses, GraphQL batching, dedupe/linking, every filter reason, vendor exception, daily cap and next-day deferral, refresh path, LLM client (pre-flight, ledger, Opus refusal, invalid output), classification (hints win, retry, budget stop, API failures), discovery runner isolation, pg-boss schedule. 263 tests total.
+
 ## Open questions
 
-- None.
+- **Registry "verified publishers":** the Registry exposes no such flag; only namespaces listed in `catalog/vendors.yaml` skip the star threshold for now (see DECISIONS M3).
+- **Vendor-first priority** lets Anthropic's ~50 in-repo marketplace plugins (incl. non-Next.js ones like language LSPs) take the first days' 30 slots; 1,300 records are deferred. Consider adding stack relevance to intake priority.

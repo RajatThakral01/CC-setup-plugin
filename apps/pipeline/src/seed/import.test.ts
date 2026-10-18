@@ -1,7 +1,6 @@
-import { eq } from 'drizzle-orm';
 import { afterAll, beforeAll, beforeEach, describe, expect, it } from 'vitest';
 import { createHttpClient, createLogger } from '@cc-setup-agent/core';
-import { catalogItems, rawSourceRecords, statusEvents } from '@cc-setup-agent/db';
+import { catalogItems, eq, rawSourceRecords, statusEvents } from '@cc-setup-agent/db';
 import { createTestDatabase, type TestDatabase } from '@cc-setup-agent/db/testing';
 import { createFakeFetch, json, type Route } from '../../../../test/support/fake-fetch.js';
 import { fakePackument, fakeRepo } from '../../../../test/fixtures/sources/github.js';
@@ -88,8 +87,8 @@ function deps() {
   });
   return {
     db: t.db,
-    github: createGithubClient(http, 'test-token'),
-    npm: createNpmClient(http),
+    github: createGithubClient(http, 'test-token', GH),
+    npm: createNpmClient(http, NPM),
     logger: createLogger({ level: 'silent' }),
   };
 }

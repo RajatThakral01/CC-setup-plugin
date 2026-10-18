@@ -18,15 +18,20 @@ export async function insertCandidate(
   item: NewCatalogItem,
   actor: Actor,
   reason: string,
+  /** Event time; defaults to the database clock. Jobs pass their run time for consistent day counts. */
+  at?: Date,
 ): Promise<void> {
   actorSchema.parse(actor);
-  await tx.insert(catalogItems).values({ ...item, status: 'candidate' });
+  await tx
+    .insert(catalogItems)
+    .values({ ...item, status: 'candidate', ...(at ? { firstSeen: at } : {}) });
   await tx.insert(statusEvents).values({
     itemId: item.id,
     fromStatus: null,
     toStatus: 'candidate',
     actor,
     reason,
+    ...(at ? { createdAt: at } : {}),
   });
 }
 

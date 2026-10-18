@@ -1,8 +1,6 @@
 import { z } from 'zod';
 import type { HttpClient } from '@cc-setup-agent/core';
 
-const REGISTRY = 'https://registry.npmjs.org';
-
 const repositorySchema = z
   .union([z.string(), z.looseObject({ url: z.string().optional() })])
   .optional();
@@ -25,6 +23,7 @@ export const npmPackumentSchema = z.looseObject({
   time: z.record(z.string(), z.string()).optional(),
   repository: repositorySchema,
   license: z.unknown().optional(),
+  readme: z.string().optional(),
 });
 export type NpmPackument = z.infer<typeof npmPackumentSchema>;
 
@@ -62,12 +61,15 @@ export interface NpmClient {
   getPackument(name: string): Promise<NpmPackument>;
 }
 
-export function createNpmClient(http: HttpClient): NpmClient {
+export function npmPackageUrl(registryUrl: string, name: string): string {
+  const encoded = name.startsWith('@')
+    ? `@${encodeURIComponent(name.slice(1))}`
+    : encodeURIComponent(name);
+  return `${registryUrl.replace(/\/+$/, '')}/${encoded}`;
+}
+
+export function createNpmClient(http: HttpClient, registryUrl: string): NpmClient {
   return {
-    getPackument: (name) =>
-      http.getJson(
-        `${REGISTRY}/${name.startsWith('@') ? `@${encodeURIComponent(name.slice(1))}` : encodeURIComponent(name)}`,
-        npmPackumentSchema,
-      ),
+    getPackument: (name) => http.getJson(npmPackageUrl(registryUrl, name), npmPackumentSchema),
   };
 }

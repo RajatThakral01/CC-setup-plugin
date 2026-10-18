@@ -89,4 +89,20 @@ export const CLASSIFICATION_STATES = [
 export const classificationStateSchema = z.enum(CLASSIFICATION_STATES);
 export type ClassificationState = z.infer<typeof classificationStateSchema>;
 
+/**
+ * Intake state of a raw record (PRD FR-D10): `pending` not yet evaluated, `accepted` became a
+ * candidate, `linked` matched an existing item, `filtered` failed the filter, `deferred` passed
+ * but hit the daily cap, `not_applicable` backs an item without being an entity of its own.
+ */
+export const INTAKE_STATES = [
+  'pending',
+  'accepted',
+  'linked',
+  'filtered',
+  'deferred',
+  'not_applicable',
+] as const;
+export const intakeStateSchema = z.enum(INTAKE_STATES);
+export type IntakeState = z.infer<typeof intakeStateSchema>;
+
 export const STACKS = ['nextjs'] as const;

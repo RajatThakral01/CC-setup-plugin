@@ -11,6 +11,7 @@
     }
   },
   "dependencies": {
+    "@anthropic-ai/sdk": "^0.135.0",
     "@cc-setup-agent/shared": "workspace:*",
     "pino": "^10.4.0",
     "zod": "^4.6.7"

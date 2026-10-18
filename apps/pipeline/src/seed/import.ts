@@ -131,7 +131,13 @@ async function importGithub(
       SEED_ACTOR,
       seedReason(entry),
     );
-    await upsertRawRecord(tx, { source: 'github_repo', externalId, payload, itemId: id });
+    await upsertRawRecord(tx, {
+      source: 'github_repo',
+      externalId,
+      payload,
+      itemId: id,
+      intakeState: 'linked',
+    });
     return { kind: 'created', id, sourceUrl };
   });
 }
@@ -200,6 +206,7 @@ async function importNpm(deps: SeedDeps, entry: SeedEntry, name: string): Promis
       externalId: packument.name,
       payload: trimPackument(packument),
       itemId: id,
+      intakeState: 'linked',
     });
     if (repo) {
       // Kept for health signals later; not linked because a monorepo may back several packages.
@@ -207,6 +214,7 @@ async function importNpm(deps: SeedDeps, entry: SeedEntry, name: string): Promis
         source: 'github_repo',
         externalId: String(repo.id),
         payload: repo,
+        intakeState: 'not_applicable',
       });
     }
     return { kind: 'created', id, sourceUrl };

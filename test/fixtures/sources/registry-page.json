@@ -1,0 +1,105 @@
+{
+  "servers": [
+    {
+      "server": {
+        "$schema": "https://static.modelcontextprotocol.io/schemas/2025-12-11/server.schema.json",
+        "name": "test.example/example-mcp-alpha",
+        "description": "Fake server used to test the registry normaliser.",
+        "title": "Example MCP Alpha",
+        "repository": {
+          "url": "https://github.com/example-org/example-mcp-alpha",
+          "source": "github",
+          "id": "1000001"
+        },
+        "version": "8.1.0",
+        "websiteUrl": "https://example.test",
+        "packages": [
+          {
+            "registryType": "pypi",
+            "identifier": "example-mcp-alpha",
+            "version": "2.1.0",
+            "transport": { "type": "stdio" },
+            "environmentVariables": [
+              {
+                "description": "Fake API key.",
+                "isRequired": true,
+                "isSecret": true,
+                "name": "EXAMPLE_ALPHA_KEY"
+              }
+            ]
+          },
+          {
+            "registryType": "npm",
+            "identifier": "@example/mcp-alpha",
+            "version": "2.1.0",
+            "transport": { "type": "stdio" },
+            "environmentVariables": [
+              {
+                "description": "Fake API key.",
+                "isRequired": true,
+                "isSecret": true,
+                "name": "EXAMPLE_ALPHA_KEY"
+              }
+            ]
+          }
+        ],
+        "remotes": [
+          {
+            "type": "streamable-http",
+            "url": "https://api.example.test/mcp",
+            "headers": [
+              {
+                "description": "Fake.",
+                "isRequired": true,
+                "value": "Bearer {api_key}",
+                "name": "Authorization"
+              }
+            ]
+          }
+        ]
+      },
+      "_meta": {
+        "io.modelcontextprotocol.registry/official": {
+          "status": "active",
+          "statusChangedAt": "2026-10-18T19:59:58.357163Z",
+          "publishedAt": "2026-10-18T19:59:58.357163Z",
+          "updatedAt": "2026-10-18T19:59:58.357163Z",
+          "isLatest": true
+        }
+      }
+    },
+    {
+      "server": {
+        "$schema": "https://static.modelcontextprotocol.io/schemas/2025-12-11/server.schema.json",
+        "name": "test.example/example-remote-only",
+        "description": "Fake remote-only server without a repository.",
+        "version": "1.0.0",
+        "remotes": [{ "type": "streamable-http", "url": "https://remote.example.test/mcp" }]
+      },
+      "_meta": {
+        "io.modelcontextprotocol.registry/official": {
+          "status": "active",
+          "publishedAt": "2026-10-18T10:00:00Z",
+          "updatedAt": "2026-10-18T10:00:00Z",
+          "isLatest": true
+        }
+      }
+    },
+    {
+      "server": {
+        "name": "io.github.example-user/example-monorepo-server",
+        "description": "Fake server living in a monorepo subfolder.",
+        "repository": {
+          "url": "https://github.com/example-user/example-monorepo",
+          "source": "github",
+          "subfolder": "packages/server"
+        },
+        "version": "0.3.0"
+      },
+      "_meta": {
+        "io.modelcontextprotocol.registry/official": { "status": "active", "isLatest": true }
+      }
+    }
+  ],
+  "metadata": { "nextCursor": null, "count": 3 }
+}

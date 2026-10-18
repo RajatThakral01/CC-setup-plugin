@@ -1,5 +1,5 @@
 import { eq, or, sql } from 'drizzle-orm';
-import type { Source } from '@cc-setup-agent/shared';
+import type { IntakeState, Source } from '@cc-setup-agent/shared';
 import type { DbOrTx } from './client.js';
 import { catalogItems, rawSourceRecords } from './schema.js';
 
@@ -10,6 +10,12 @@ export interface RawRecordInput {
   /** Links the record to an item; an existing link is kept when omitted. */
   itemId?: string;
   fetchedAt?: Date;
+  /**
+   * Intake state to set. Applied on insert; on update it replaces the state only while the
+   * record is not linked to an item (linking is decided by intake, not by refetches).
+   */
+  intakeState?: IntakeState;
+  stars?: { count: number; checkedAt: Date; velocity7d?: number | undefined };
 }
 
 /** Inserts or refreshes a raw record keyed by (source, external_id). Idempotent. */
@@ -23,6 +29,14 @@ export async function upsertRawRecord(tx: DbOrTx, input: RawRecordInput): Promis
       payload: input.payload,
       fetchedAt,
       itemId: input.itemId ?? null,
+      ...(input.intakeState ? { intakeState: input.intakeState } : {}),
+      ...(input.stars
+        ? {
+            stars: input.stars.count,
+            starsCheckedAt: input.stars.checkedAt,
+            starVelocity7d: input.stars.velocity7d ?? null,
+          }
+        : {}),
     })
     .onConflictDoUpdate({
       target: [rawSourceRecords.source, rawSourceRecords.externalId],
@@ -30,6 +44,22 @@ export async function upsertRawRecord(tx: DbOrTx, input: RawRecordInput): Promis
         payload: input.payload,
         fetchedAt,
         itemId: input.itemId ?? sql`${rawSourceRecords.itemId}`,
+        ...(input.intakeState
+          ? {
+              intakeState: input.itemId
+                ? input.intakeState
+                : sql`CASE WHEN ${rawSourceRecords.itemId} IS NULL THEN ${input.intakeState}::intake_state ELSE ${rawSourceRecords.intakeState} END`,
+            }
+          : {}),
+        ...(input.stars
+          ? {
+              stars: input.stars.count,
+              starsCheckedAt: input.stars.checkedAt,
+              ...(input.stars.velocity7d !== undefined
+                ? { starVelocity7d: input.stars.velocity7d }
+                : {}),
+            }
+          : {}),
       },
     })
     .returning({ id: rawSourceRecords.id });

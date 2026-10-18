@@ -1,0 +1,17 @@
+# Discovery sources (PRD FR-D5), approved by the owner on 2026-10-19.
+# The MCP Registry (FR-D2), GitHub search (FR-D3) and the Claude Code changelog (FR-D1) are
+# configured through environment variables; see .env.example.
+# Excluded for now: Anthropic community marketplace, awesome-lists, npm search, README scraping.
+marketplaces:
+  - url: https://raw.githubusercontent.com/anthropics/claude-plugins-official/main/.claude-plugin/marketplace.json
+    note: Anthropic official plugin directory
+  - url: https://raw.githubusercontent.com/anthropics/claude-code/main/.claude-plugin/marketplace.json
+    note: Marketplace bundled in the anthropics/claude-code repo
+  - url: https://raw.githubusercontent.com/anthropics/skills/main/.claude-plugin/marketplace.json
+    note: Anthropic Agent Skills marketplace
+  - url: https://raw.githubusercontent.com/vercel/vercel-plugin/main/.claude-plugin/marketplace.json
+    note: Vercel plugin marketplace
+  - url: https://raw.githubusercontent.com/getsentry/toolkit/main/.claude-plugin/marketplace.json
+    note: Sentry plugin marketplace
+  - url: https://raw.githubusercontent.com/grafana/ai-marketplace/main/.claude-plugin/marketplace.json
+    note: Grafana plugin marketplace

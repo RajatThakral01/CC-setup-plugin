@@ -153,6 +153,34 @@ export const configSchema = z
     LOG_LEVEL: z
       .enum(['fatal', 'error', 'warn', 'info', 'debug', 'trace', 'silent'])
       .default('info'),
+    // External endpoints (portability: every host comes from config).
+    GITHUB_API_URL: z.url().default('https://api.github.com'),
+    GITHUB_RAW_URL: z.url().default('https://raw.githubusercontent.com'),
+    NPM_REGISTRY_URL: z.url().default('https://registry.npmjs.org'),
+    MCP_REGISTRY_URL: z.url().default('https://registry.modelcontextprotocol.io/v0.1'),
+    CLAUDE_CODE_REPO: z.string().default('anthropics/claude-code'),
+    // Discovery (plan M3) and intake filter (PRD FR-D10).
+    DISCOVERY_CRON: z.string().default('0 2 * * *'),
+    DISCOVERY_LOOKBACK_DAYS: z.coerce.number().int().positive().default(7),
+    GITHUB_SEARCH_TOPICS: z
+      .string()
+      .default('mcp-server,claude-code,claude-skills,claude-code-plugin')
+      .transform((v) =>
+        v
+          .split(',')
+          .map((s) => s.trim())
+          .filter(Boolean),
+      ),
+    GITHUB_SEARCH_WINDOW_DAYS: z.coerce.number().int().positive().default(7),
+    GITHUB_SEARCH_MAX_PAGES: z.coerce.number().int().min(1).max(10).default(10),
+    GITHUB_SEARCH_INTERVAL_MS: z.coerce.number().int().nonnegative().default(2500),
+    REGISTRY_MAX_PAGES: z.coerce.number().int().positive().default(200),
+    CHANGELOG_MAX_VERSIONS: z.coerce.number().int().positive().default(30),
+    INTAKE_MIN_STARS: z.coerce.number().int().nonnegative().default(10),
+    INTAKE_DAILY_CAP: z.coerce.number().int().nonnegative().default(30),
+    INTAKE_REFRESH_LIMIT: z.coerce.number().int().nonnegative().default(200),
+    CLASSIFY_README_CHARS: z.coerce.number().int().positive().default(4000),
+    CLASSIFY_MAX_TOKENS: z.coerce.number().int().positive().default(600),
   })
   .superRefine((c, ctx) => {
     for (const key of ['MODEL_FAST', 'MODEL_STRONG'] as const) {

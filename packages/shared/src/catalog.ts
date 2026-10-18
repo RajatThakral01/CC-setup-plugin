@@ -40,12 +40,17 @@ export const installSchema = z.object({
 export type Install = z.infer<typeof installSchema>;
 
 /** LLM classification stored with model and prompt version (FR-D9). */
+/** Stack tags classification may assign; `any` means stack-independent. */
+export const STACK_TAGS = ['nextjs', 'react', 'node', 'python', 'any'] as const;
+
 export const classificationSchema = z.object({
   kind: kindSchema,
   category: categorySchema.nullable(),
   stacks: z.array(z.string()),
   summary: z.string(),
   provenanceGuess: provenanceSchema,
+  /** False when the tool is not something a developer adds to a Claude Code setup. */
+  relevant: z.boolean(),
   model: z.string(),
   promptVersion: z.string(),
   classifiedAt: z.iso.datetime(),

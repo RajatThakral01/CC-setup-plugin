@@ -1,0 +1,52 @@
+{
+  "$schema": "https://anthropic.com/claude-code/marketplace.schema.json",
+  "name": "example-marketplace",
+  "description": "Fake marketplace with one plugin per source type.",
+  "owner": { "name": "Example Org" },
+  "renames": { "old-name": "example-relative-plugin" },
+  "plugins": [
+    {
+      "name": "example-relative-plugin",
+      "description": "Development kit, in this marketplace's repo.",
+      "author": { "name": "Example Org", "email": "support@example.test" },
+      "source": "./plugins/example-relative-plugin",
+      "category": "development",
+      "homepage": "https://github.com/example-org/example-marketplace/tree/main/plugins/example-relative-plugin"
+    },
+    {
+      "name": "example-url-plugin",
+      "description": "Plugin in its own repo, referenced by git URL.",
+      "category": "development",
+      "source": {
+        "source": "url",
+        "url": "https://github.com/example-vendor/example-url-plugin.git",
+        "sha": "09bf1539d41f9ff355ba3eb5d05d4a75813423bb"
+      },
+      "homepage": "https://github.com/example-vendor/example-url-plugin"
+    },
+    {
+      "name": "example-subdir-plugin",
+      "description": "Plugin in a subfolder of another repo, pinned to a tag.",
+      "author": { "name": "Example Vendor" },
+      "category": "security",
+      "source": {
+        "source": "git-subdir",
+        "url": "https://github.com/example-vendor/example-plugins.git",
+        "path": "plugins/example-subdir-plugin",
+        "ref": "v1.5.5",
+        "sha": "faf5305385de8afed9468904e8639be737aff39e"
+      },
+      "homepage": "https://example.test"
+    },
+    {
+      "name": "example-github-plugin",
+      "description": "Plugin referenced by GitHub repo shorthand.",
+      "source": { "source": "github", "repo": "example-community/example-github-plugin" }
+    },
+    {
+      "name": "example-npm-plugin",
+      "description": "Plugin distributed through npm only.",
+      "source": { "source": "npm", "package": "@example/npm-plugin" }
+    }
+  ]
+}
