@@ -12,13 +12,14 @@
     "lint": "eslint . && prettier --check .",
     "format": "prettier --write .",
     "test": "vitest run",
-    "check:models": "tsx --conditions=source scripts/check-forbidden-models.ts",
-    "keys:generate": "tsx --conditions=source scripts/keys-generate.ts",
-    "db:health": "tsx --conditions=source scripts/db-health.ts",
-    "db:migrate": "tsx --conditions=source scripts/db-migrate.ts",
+    "check:models": "tsx --conditions=@cc-setup-agent/source scripts/check-forbidden-models.ts",
+    "keys:generate": "tsx --conditions=@cc-setup-agent/source scripts/keys-generate.ts",
+    "db:health": "tsx --conditions=@cc-setup-agent/source scripts/db-health.ts",
+    "db:migrate": "tsx --conditions=@cc-setup-agent/source scripts/db-migrate.ts",
     "db:generate": "pnpm --filter @cc-setup-agent/db db:generate",
-    "pipeline": "tsx --conditions=source apps/pipeline/src/cli.ts",
-    "ci:status": "tsx --conditions=source scripts/ci-status.ts"
+    "pipeline": "tsx --conditions=@cc-setup-agent/source apps/pipeline/src/cli.ts",
+    "ci:status": "tsx --conditions=@cc-setup-agent/source scripts/ci-status.ts",
+    "triage": "tsx --conditions=@cc-setup-agent/source apps/triage/src/main.ts"
   },
   "devDependencies": {
     "@cc-setup-agent/core": "workspace:*",

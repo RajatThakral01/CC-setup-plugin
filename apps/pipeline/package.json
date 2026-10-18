@@ -5,7 +5,7 @@
   "type": "module",
   "exports": {
     ".": {
-      "source": "./src/index.ts",
+      "@cc-setup-agent/source": "./src/index.ts",
       "types": "./dist/index.d.ts",
       "default": "./dist/index.js"
     }
@@ -14,8 +14,13 @@
     "@cc-setup-agent/core": "workspace:*",
     "@cc-setup-agent/db": "workspace:*",
     "@cc-setup-agent/shared": "workspace:*",
+    "@modelcontextprotocol/sdk": "^1.32.1",
     "pg-boss": "^12.38.0",
+    "semver": "^7.8.5",
     "yaml": "^2.9.1",
     "zod": "^4.6.7"
+  },
+  "devDependencies": {
+    "@types/semver": "^7.8.0"
   }
 }

@@ -12,6 +12,7 @@ import type { AppConfig } from '@cc-setup-agent/shared';
 import { createDb, createLedgerGuard, type Db } from '@cc-setup-agent/db';
 import { createGithubClient, type GithubClient } from './sources/github.js';
 import { createNpmClient, type NpmClient } from './sources/npm.js';
+import { createDockerCli, type DockerCli } from './gates/sandbox/docker.js';
 
 /** Everything a pipeline command needs, built once from config. */
 export interface PipelineContext {
@@ -21,6 +22,7 @@ export interface PipelineContext {
   http: HttpClient;
   github: GithubClient;
   npm: NpmClient;
+  docker: DockerCli;
   /** Created on first use, so commands without LLM calls don't need ANTHROPIC_API_KEY. */
   llm(): LlmClient;
   close(): Promise<void>;
@@ -39,6 +41,7 @@ export function createContext(): PipelineContext {
     http,
     github: createGithubClient(http, requireSecret(config, 'GITHUB_TOKEN'), config.GITHUB_API_URL),
     npm: createNpmClient(http, config.NPM_REGISTRY_URL),
+    docker: createDockerCli(),
     llm() {
       llm ??= createLlmClient({ config, guard: createLedgerGuard(handle.db, config, logger) });
       return llm;

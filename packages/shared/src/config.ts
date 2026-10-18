@@ -102,6 +102,15 @@ const modelId = z
 
 const usd = z.coerce.number().nonnegative();
 
+/** An official Docker Hub image (`node` or `python`) pinned by tag and sha256 digest. */
+const officialImage = (name: 'node' | 'python') =>
+  z
+    .string()
+    .regex(
+      new RegExp(`^(docker\\.io/library/)?${name}:[A-Za-z0-9._-]+@sha256:[a-f0-9]{64}$`),
+      `must be the official ${name} image pinned as ${name}:<tag>@sha256:<digest>`,
+    );
+
 export const SECRET_ENV_KEYS = [
   'DATABASE_URL',
   'ANTHROPIC_API_KEY',
@@ -183,6 +192,26 @@ export const configSchema = z
     CLASSIFY_MAX_TOKENS: z.coerce.number().int().positive().default(600),
     /** Filter-passing raw records classified per UTC day before ranking (owner decision). */
     CLASSIFY_DAILY_RECORD_LIMIT: z.coerce.number().int().nonnegative().default(300),
+    // Credibility gates (plan M4). Sandbox images: official node/python only, tag plus digest.
+    GATE_NODE_IMAGE: officialImage('node').default(
+      'node:22-bookworm-slim@sha256:c3de60bf2f9dd0ac6370e6117950ff62d6e339527e7472301c9c78a017978392',
+    ),
+    GATE_PYTHON_IMAGE: officialImage('python').default(
+      'python:3.13-slim-bookworm@sha256:a1165e272e578941b84abc79e4ab38a0305cd12803a5c4247979ac7655f4d641',
+    ),
+    GATE_INSTALL_TIMEOUT_SECONDS: z.coerce.number().int().positive().default(180),
+    GATE_LIST_TOOLS_TIMEOUT_SECONDS: z.coerce.number().int().positive().default(30),
+    GATE_CPUS: z.coerce.number().positive().max(4).default(1),
+    GATE_MEMORY_MB: z.coerce.number().int().min(128).max(4096).default(1024),
+    GATE_PIDS_LIMIT: z.coerce.number().int().min(16).max(1024).default(256),
+    /** Fixed sandbox platform so results don't depend on the host CPU (emulated on Apple Silicon). */
+    GATE_PLATFORM: z.enum(['linux/amd64', 'linux/arm64']).default('linux/amd64'),
+    GATE_CONCURRENCY: z.coerce.number().int().min(1).max(8).default(2),
+    GATE_RECHECK_DAYS: z.coerce.number().int().positive().default(30),
+    GATES_CRON: z.string().default('0 4 * * *'),
+    OSV_API_URL: z.url().default('https://api.osv.dev/v1'),
+    NPM_DOWNLOADS_URL: z.url().default('https://api.npmjs.org'),
+    PYPI_URL: z.url().default('https://pypi.org'),
   })
   .superRefine((c, ctx) => {
     for (const key of ['MODEL_FAST', 'MODEL_STRONG'] as const) {

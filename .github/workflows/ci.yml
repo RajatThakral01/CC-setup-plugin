@@ -25,6 +25,8 @@ jobs:
     env:
       DATABASE_URL: postgres://setup:setup@localhost:5432/setup_agent
       TEST_DATABASE_URL: postgres://setup:setup@localhost:5432/setup_agent
+      # Real-Docker sandbox tests (fixture MCP servers only; no package installs).
+      SANDBOX_TESTS: '1'
     steps:
       - uses: actions/checkout@v4
         with:

@@ -5,14 +5,17 @@
   "type": "module",
   "exports": {
     ".": {
-      "source": "./src/index.ts",
+      "@cc-setup-agent/source": "./src/index.ts",
       "types": "./dist/index.d.ts",
       "default": "./dist/index.js"
     }
   },
   "dependencies": {
-    "@cc-setup-agent/shared": "workspace:*",
     "@cc-setup-agent/core": "workspace:*",
-    "@cc-setup-agent/db": "workspace:*"
+    "@cc-setup-agent/db": "workspace:*",
+    "@cc-setup-agent/shared": "workspace:*",
+    "@hono/node-server": "^2.1.5",
+    "hono": "^4.13.13",
+    "zod": "^4.6.7"
   }
 }

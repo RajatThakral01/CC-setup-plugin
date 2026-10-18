@@ -118,6 +118,91 @@ export interface GithubClient {
   /** README text (raw), for a repo root or a folder; undefined when there is none. */
   getReadme(fullName: string, folder?: { path: string; ref: string }): Promise<string | undefined>;
   getReleases(fullName: string, perPage: number): Promise<GithubRelease[]>;
+  /** One file's raw text at `ref` (default branch when omitted); undefined when missing. */
+  getFileText(fullName: string, path: string, ref?: string): Promise<string | undefined>;
+  /** All paths in the tree at `ref`; `truncated` when GitHub cut the listing short. */
+  getTree(fullName: string, ref: string): Promise<{ paths: string[]; truncated: boolean }>;
+  getRepoHealth(fullName: string): Promise<RepoHealth | null>;
+  /** Number of contributors (incl. anonymous), from the pagination of a one-per-page listing. */
+  getContributorCount(fullName: string): Promise<number>;
+}
+
+const healthSchema = z.object({
+  data: z
+    .object({
+      repository: z
+        .object({
+          diskUsage: z.number().nullable(),
+          defaultBranchRef: z
+            .object({
+              name: z.string(),
+              target: z
+                .object({ oid: z.string().optional(), committedDate: z.string().optional() })
+                .nullable(),
+            })
+            .nullable(),
+          latestRelease: z
+            .object({ tagName: z.string(), publishedAt: z.string().nullable() })
+            .nullable(),
+          releases: z.object({
+            totalCount: z.number(),
+            nodes: z.array(z.object({ publishedAt: z.string().nullable() })),
+          }),
+          issues: z.object({
+            nodes: z.array(
+              z.object({
+                createdAt: z.string(),
+                author: z.object({ login: z.string() }).nullable(),
+                comments: z.object({
+                  nodes: z.array(
+                    z.object({
+                      createdAt: z.string(),
+                      author: z.object({ login: z.string() }).nullable(),
+                    }),
+                  ),
+                }),
+              }),
+            ),
+          }),
+          openIssues: z.object({ totalCount: z.number() }),
+          owner: z.object({
+            login: z.string(),
+            repositories: z.object({
+              nodes: z.array(
+                z.object({ nameWithOwner: z.string(), pushedAt: z.string().nullable() }),
+              ),
+            }),
+          }),
+        })
+        .nullable(),
+    })
+    .nullable()
+    .optional(),
+  errors: z.array(z.looseObject({ type: z.string().optional(), message: z.string() })).optional(),
+});
+
+/** Health signals for gates 0–2 (plan M4). */
+export interface RepoHealth {
+  diskUsageKb: number | null;
+  defaultBranch: string | null;
+  headSha: string | null;
+  lastCommitAt: string | null;
+  latestRelease: { tag: string; publishedAt: string | null } | null;
+  releaseCount: number;
+  releaseDates: string[];
+  openIssues: number;
+  /** Median hours from issue creation to the first comment by someone else, over recent issues. */
+  medianIssueResponseHours: number | null;
+  ownerLogin: string;
+  /** Owner's other non-fork repos pushed within the last 180 days. */
+  ownerMaintainedRepos: number;
+}
+
+export function median(values: number[]): number | null {
+  if (values.length === 0) return null;
+  const sorted = [...values].sort((a, b) => a - b);
+  const mid = Math.floor(sorted.length / 2);
+  return sorted.length % 2 ? sorted[mid]! : (sorted[mid - 1]! + sorted[mid]!) / 2;
 }
 
 export function createGithubClient(http: HttpClient, token: string, apiUrl: string): GithubClient {
@@ -227,6 +312,92 @@ export function createGithubClient(http: HttpClient, token: string, apiUrl: stri
         if (text !== undefined) return text;
       }
       return undefined;
+    },
+
+    getFileText: (fullName, path, ref) =>
+      rawText(
+        `${base}/repos/${enc(fullName)}/contents/${enc(path)}${ref ? `?ref=${encodeURIComponent(ref)}` : ''}`,
+      ),
+
+    async getTree(fullName, ref) {
+      const data = await http.getJson(
+        `${base}/repos/${enc(fullName)}/git/trees/${encodeURIComponent(ref)}?recursive=1`,
+        z.object({
+          tree: z.array(z.looseObject({ path: z.string() })),
+          truncated: z.boolean().optional(),
+        }),
+        { headers },
+      );
+      return { paths: data.tree.map((t) => t.path), truncated: data.truncated === true };
+    },
+
+    async getRepoHealth(fullName) {
+      const [owner = '', name = ''] = fullName.split('/');
+      const query = `query($o: String!, $n: String!) { repository(owner: $o, name: $n) {
+        diskUsage
+        defaultBranchRef { name target { ... on Commit { oid committedDate } } }
+        latestRelease { tagName publishedAt }
+        releases(first: 20, orderBy: { field: CREATED_AT, direction: DESC }) { totalCount nodes { publishedAt } }
+        issues(first: 20, orderBy: { field: CREATED_AT, direction: DESC }) { nodes { createdAt author { login } comments(first: 5) { nodes { createdAt author { login } } } } }
+        openIssues: issues(states: OPEN) { totalCount }
+        owner { login repositories(first: 100, ownerAffiliations: OWNER, isFork: false, orderBy: { field: PUSHED_AT, direction: DESC }) { nodes { nameWithOwner pushedAt } } }
+      } }`;
+      const response = await http.request(`${base}/graphql`, {
+        method: 'POST',
+        headers: { ...headers, 'content-type': 'application/json' },
+        body: JSON.stringify({ query, variables: { o: owner, n: name } }),
+      });
+      const parsed = healthSchema.safeParse(await response.json());
+      if (!parsed.success) {
+        throw new ResponseValidationError(
+          `${base}/graphql`,
+          parsed.error.issues.map((x) => `${x.path.join('.')}: ${x.message}`),
+        );
+      }
+      const r = parsed.data.data?.repository;
+      if (!r) return null;
+      const cutoff = Date.now() - 180 * 86_400_000;
+      const responses = r.issues.nodes.flatMap((issue) => {
+        const first = issue.comments.nodes.find((c) => c.author?.login !== issue.author?.login);
+        return first
+          ? [(Date.parse(first.createdAt) - Date.parse(issue.createdAt)) / 3_600_000]
+          : [];
+      });
+      return {
+        diskUsageKb: r.diskUsage,
+        defaultBranch: r.defaultBranchRef?.name ?? null,
+        headSha: r.defaultBranchRef?.target?.oid ?? null,
+        lastCommitAt: r.defaultBranchRef?.target?.committedDate ?? null,
+        latestRelease: r.latestRelease
+          ? { tag: r.latestRelease.tagName, publishedAt: r.latestRelease.publishedAt }
+          : null,
+        releaseCount: r.releases.totalCount,
+        releaseDates: r.releases.nodes.flatMap((n) => (n.publishedAt ? [n.publishedAt] : [])),
+        openIssues: r.openIssues.totalCount,
+        medianIssueResponseHours: median(responses),
+        ownerLogin: r.owner.login,
+        ownerMaintainedRepos: r.owner.repositories.nodes.filter(
+          (n) =>
+            n.nameWithOwner.toLowerCase() !== fullName.toLowerCase() &&
+            n.pushedAt &&
+            Date.parse(n.pushedAt) >= cutoff,
+        ).length,
+      };
+    },
+
+    async getContributorCount(fullName) {
+      const response = await http.request(
+        `${base}/repos/${enc(fullName)}/contributors?per_page=1&anon=1`,
+        { headers },
+      );
+      const link = response.headers.get('link') ?? '';
+      const last = /[?&]page=(\d+)>;\s*rel="last"/.exec(link);
+      if (last?.[1]) {
+        await response.body?.cancel();
+        return Number(last[1]);
+      }
+      const body: unknown = await response.json().catch(() => []);
+      return Array.isArray(body) ? body.length : 0;
     },
 
     getReleases: (fullName, perPage) =>

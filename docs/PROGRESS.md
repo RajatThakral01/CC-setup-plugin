@@ -3,7 +3,7 @@
 ## Current state
 
 - **Session range:** Milestones 4–5 (owner-approved 2026-10-19).
-- **Current milestone:** 4 — Credibility gates 0 to 3.
+- **Current milestone:** 5 — Triage UI.
 - **Total Anthropic API spend to date:** USD 0.1359 (Haiku classification only). Weekly cap USD 20, total cap USD 40.
 - **Remote:** https://github.com/RajatThakral01/CC-setup-plugin — pushed after every milestone; CI green.
 
@@ -15,8 +15,8 @@
 | 1   | Shared schemas and database | Done   | M1     |
 | 2   | Seed catalog importer       | Done   | M2     |
 | 3   | Discovery jobs              | Done   | M3     |
-| 4   | Credibility gates 0 to 3    |        |        |
-| 5   | Triage UI                   |        |        |
+| 4   | Credibility gates 0 to 3    | Done   | M4     |
+| 5   | Triage UI                   | Next   |        |
 | 6   | Signed catalog snapshot     |        |        |
 | 7   | Plugin MCP server           |        |        |
 | 8   | Plugin packaging            |        |        |
@@ -96,6 +96,26 @@ Tests: normalisers against anonymised recorded responses, GraphQL batching, dedu
 
 - Remote `origin` added, history pushed; CI fixed (gitleaks CLI in a pinned container) and green on GitHub.
 - Intake priority: up to 300 filter-passing records classified per day before ranking; slots filled by Next.js relevance, then vendor, star velocity, stars; irrelevant intake items marked out of scope for Next.js. Prompt `classify-v2`; all 147 items re-classified (10 marked out of scope); 300 deferred records classified live (223 Next.js-relevant).
+
+## Milestone 4 — Credibility gates 0 to 3 (done)
+
+Built:
+
+- Docker sandbox for third-party code with every owner rule enforced on the `docker run` arguments (pinned official images, one throwaway mount, no secrets, non-root, no capabilities, CPU/memory/pids/time limits, fixed platform, internal network with an egress-logging proxy, always removed) and a test that fails if a container could start without them; a boundary test keeps Docker use inside the sandbox module.
+- MCP probe: install in the sandbox, connect with the MCP SDK over stdio, list tools, record egress; remote servers probed over HTTP.
+- Install resolution with exact versions (npm, PyPI, Registry packages/remotes, Registry lookup by repo, repo package.json with anti-squatting check, pyproject.toml).
+- Gates 0–3 with evidence, OSV checks, install-script and tool-poisoning rules, capabilities, context overhead, confidence from a weights table, scorecards per item version, pinned versions, signal snapshots; status changes (rejected / blocked / watchlist, and lifting system rejections) through `transitionStatus`; approval of security-flagged items needs a written override note.
+- `pnpm run pipeline gates [--item … | --pending | --recheck]`; daily pg-boss `gates-daily` (04:00 UTC) incl. the 30-day re-check of recommended items.
+
+Acceptance:
+
+- [x] Every seed item has a scorecard with gates 0 to 3 (all 147 items; live 2026-10-19). Outcome: 140 candidates, 7 rejected (no licence, or uninstallable); confidence high 72 / medium 54 / low 21; gate 3 flagged 13 (mostly high-severity vulnerable dependencies, e.g. a pinned vulnerable MCP SDK); 0 confirmed injections.
+- [x] A fixture MCP server with a poisoned tool description is flagged and cannot be approved without an explicit override note (real-Docker test: confirmed injection → blocked; unit/DB tests: flagged item refused without `overrideNote`, accepted with it).
+- [x] Container runs leave no processes or volumes behind (real-Docker tests on success, timeout and poisoned server; after the full live run: 0 sandbox containers, 0 networks).
+
+Tests: each gate with fixtures (clean, abandoned, vulnerable dependency, poisoned description, install script), confidence, sandbox policy (every rule), install resolution, OSV, start-failure classification, gateItem end to end on a test DB. 365 tests total, including 4 real-Docker tests (run in CI).
+
+Deviation worth a look: gate 0 hard-rejects only proven hygiene failures. "Starts without configuration" and "install method found" are soft, because the first live run wrongly rejected official servers that need an API key or are remote-only (see DECISIONS M4).
 
 ## Open questions
 

@@ -1,8 +1,8 @@
 import { defineConfig } from 'vitest/config';
 
 export default defineConfig({
-  resolve: { conditions: ['source'] },
-  ssr: { resolve: { conditions: ['source'] } },
+  resolve: { conditions: ['@cc-setup-agent/source'] },
+  ssr: { resolve: { conditions: ['@cc-setup-agent/source'] } },
   test: {
     include: [
       'packages/*/src/**/*.test.ts',

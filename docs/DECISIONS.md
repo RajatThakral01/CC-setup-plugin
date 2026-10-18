@@ -158,6 +158,67 @@ Defaults in `packages/shared/src/config.ts`; override with `MODEL_PRICING_JSON`.
 - **Prompt `classify-v2`:** `any` only for genuinely stack-independent tools also useful in a TypeScript web project; tools tied to another language or platform get only their own tag or none. All 147 items re-classified (`classify --stale`, USD 0.031): 10 intake items marked out of scope (language servers, math plugins, iMessage, etc.). On re-classification, seeded items only get empty fields filled; intake items also get fields that still hold the previous classification's value replaced.
 - **Registry namespaces:** owner agrees with the stricter reading; `registry_namespaces` stays empty. `catalog/vendors.yaml` approved as is.
 
+## Milestone 4
+
+**Sandbox rules (owner decision 2026-10-19), enforced in code**
+
+Every container that runs third-party code is started through `buildRunArgs()` and checked by `assertSandboxPolicy()` (`apps/pipeline/src/gates/sandbox/policy.ts`) immediately before `docker run`. The check is a strict allowlist: any flag not listed is refused. Rules:
+
+1. **Images:** only the configured official images, pinned as `<name>:<tag>@sha256:<digest>`. Config validation accepts only `node` and `python` from Docker Hub's official library. Pinned 2026-10-19: `node:22-bookworm-slim@sha256:c3de60bf…78392`, `python:3.13-slim-bookworm@sha256:a1165e27…4d641` (3.13, not 3.12, because some servers require it).
+2. **Mounts:** at most one, `<throwaway temp dir>:/work`, where the temp dir is created per run under the OS temp root with prefix `ccsa-sandbox-` and deleted afterwards. `--mount`, `--volumes-from` and anything else are refused.
+3. **No secrets:** `-e` only as `NAME=value` with `NAME` in a small allowlist (proxy, npm/pip/uv cache settings, `HOME`). `-e NAME` without a value (which would copy the host variable) and credential-looking values are refused. `--env-file` is refused.
+4. **Least privilege:** `--user 1000:1000` (root refused), `--cap-drop ALL`, `--security-opt no-new-privileges`, `--read-only` root with a small `noexec` tmpfs on `/tmp`.
+5. **Limits:** `--cpus` (`GATE_CPUS`, 1), `--memory` (`GATE_MEMORY_MB`, 1024), `--pids-limit` (`GATE_PIDS_LIMIT`, 256), a wall-clock limit (install 180 s + listTools 30 s + 15 s), after which the container is force-removed.
+6. **Network and egress:** each run gets its own `docker network create --internal` network. The target container sits only on that network; the only way out is an egress-logging HTTP/CONNECT proxy (our own script in the pinned node image) that is also attached to the default bridge. Every connection through it is logged (host, port, time) and split into install versus runtime (after the MCP `initialize` answer). Connections that ignore the proxy have no route and fail (tested), so they are blocked but cannot be logged.
+7. **Always removed:** containers use `--rm`, carry label `ccsa.sandbox=<run id>`, and are force-removed together with the network in a `finally` block; each gate run also sweeps leftovers with that label first. Tested with real Docker: after success, a never-starting server (timeout) and a poisoned server, no containers or networks remain.
+8. **Fixed platform:** `--platform` is required, from `GATE_PLATFORM` (default `linux/amd64`, emulated on Apple Silicon), so results don't depend on the host CPU (in the spirit of FR-E5 pinning).
+9. **Boundary test:** a test scans all source files and fails if anything outside `gates/sandbox/` spawns Docker or MCP stdio servers.
+10. **Real-Docker tests** (`SANDBOX_TESTS=1`, set in CI) run only dependency-free fixture servers; nothing is installed from the internet in CI.
+
+**Gates**
+
+- **Install resolution (FR-G6, exact versions):** MCP server → item npm package → Registry packages (npm, then PyPI, with env var names) → Registry remote → a package published from the repo, trusted only if its npm `repository` points back at the same repo (blocks name squatting) → `pyproject.toml` `[project] name` on PyPI. Skills → `skill_copy`, marketplace plugins → `plugin`, others → `manual`. Values that go into the sandbox shell must match strict name/version patterns and are single-quoted.
+- **Scorecard version:** package version, Registry version for remotes, else latest release tag, else `sha-<7 chars>` of the default branch head. The scored version is pinned in `item_versions`.
+- **Gate 0 (hard, → `rejected`):**
+  - **Licence:** from the repo, any LICENSE/COPYING file in the item's tree (skill collections keep them per folder), `license:` in SKILL.md frontmatter, or the package.
+  - **README ≥ 200 characters:** folder items without their own README fall back to the collection's README.
+  - **Real code:** not a fork, not empty.
+  - **Installable artifact:**
+    - MCP servers need an npm/PyPI package, a remote endpoint, or a GitHub release (FR-C0's wording; covers Go binaries and Docker images we can't run).
+    - Skills need a `SKILL.md` (case-insensitive).
+    - Plugins need a `.claude-plugin/plugin.json` or `marketplace.json` in their tree, or a marketplace listing.
+  - **Installs and starts:** only a failed **install** (package can't be resolved or downloaded: unsatisfiable dependencies, missing version, 404) is a hard failure. A server that installs but won't start without credentials, arguments or a different entry point gets "start not verified" (soft). This is a deliberate softening of "installs and starts": the first live run hard-rejected official servers (Brave, Perplexity, Resend, Upstash, Storybook…) only because they need an API key or were invoked with default arguments.
+  - **Remote servers:** probed over HTTP from the host without credentials; 401/403 means "needs credentials" (soft).
+- **Package lookup by repository:** when an MCP server has no linked Registry record and no package at the repo root (monorepos), the MCP Registry is searched by repo name and matched on the exact repository URL (and subfolder) before falling back.
+- **System rejections are lifted** when a later gate-0 check passes (rejected → candidate, actor `system`); rejections by a human are never undone automatically.
+- **Gate 1 (soft):** `anthropic` if the owner is `anthropics`, `official_vendor` if in `catalog/vendors.yaml`, else `community`. Community passes with ≥ 3 other non-fork repos pushed within 180 days. Gate 1's provenance replaces the classifier's guess.
+- **Gate 2 (soft):** last commit ≤ 90 days pass, otherwise soft-fail; over 180 days = abandoned → recommended items move to `watchlist`. Evidence: releases in 180 days, median first-response time over the last 20 issues, open issues, contributors, npm weekly downloads (single call; the trend itself is Phase 2 FR-D4). Written to `signal_snapshots`.
+- **Gate 3:** tool names, descriptions and nested parameter descriptions; for skills, the first `SKILL.md`. Rules:
+  - **Critical, confirmed → `blocked`:** "ignore/disregard … instructions", "do not tell the user", system-prompt override, Unicode tag characters (decoded into the evidence).
+  - **High, flagged:** invisible or bidi characters, `<IMPORTANT>`-style tags, sensitive paths (`~/.ssh`, `.aws/credentials`, `.env`, …) with read/send verbs, runtime egress while listing tools.
+  - **Medium:** "send … to http…", npm `preinstall`/`install`/`postinstall` scripts.
+  - **Low:** descriptions over 1,000 characters, non-registry hosts during install.
+  - **Result:** any high/critical → `fail` (flagged; approval needs a written override); medium → `soft_fail`.
+  - **OSV:** the package at its pinned version plus up to 60 direct npm dependencies, each resolved to the highest published version matching its range (transitive dependencies not covered). Only high/critical vulnerabilities count for the gate; all are listed.
+- **Runtime egress is flagged, not auto-blocked** (a server may legitimately call its own API at start-up); only confirmed injection auto-blocks.
+- **Capabilities** are inferred from tool names and descriptions (approximate; shown for review). Context overhead = serialised tool definitions ÷ 4.
+- **Confidence (FR-C6):** weights in `packages/shared/src/scoring.ts`: gate 0: 30, gate 1: 20, gate 2: 25, gate 3: 25 points for a pass (soft-fail and not-run earn less). ≥ 85 high, ≥ 55 medium. A failed gate 0 or gate 3 means low; gate 0 or gate 3 not run caps at medium.
+- **Override:** `transitionStatus` refuses `recommended`/`recommended_provisional` when the latest scorecard's gate 3 failed, unless `overrideNote` is given; the note is appended to the audit reason.
+- **Re-check (FR-C8):** pg-boss `gates-daily` at `GATES_CRON` (04:00 UTC) gates unscored items (in-scope first) and recommended items not checked for `GATE_RECHECK_DAYS` (30). New versions are picked up by that re-check (a new version yields a new scorecard row); a faster version trigger is left for later.
+- **Custom export condition renamed** `source` → `@cc-setup-agent/source`: a dependency of the MCP SDK (`eventsource-parser`) publishes a `source` condition pointing at raw TypeScript.
+- **`.env.example` not updated for the Python 3.13 image:** the project's `Read(./.env.*)` deny rule blocks edits to it. Its `GATE_PYTHON_IMAGE` line still names the 3.12 digest (a valid pinned image). The owner may want to update that line or delete it to use the code default.
+
+## Milestone 5
+
+- **Server:** Hono (`hono`, `@hono/node-server`), server-rendered HTML through `hono/html` (auto-escaping), no frontend framework (plan 2.2). Bound to `TRIAGE_HOST` (default `127.0.0.1`) and `TRIAGE_PORT` (4400). Run with `pnpm triage`.
+- **Auth:** `TRIAGE_ADMIN_TOKEN` (min 16 characters, refused otherwise at startup). The sign-in form takes a reviewer name and the token (constant-time compare). The session cookie is `<name>.<HMAC-SHA256(name)>`, signed with the admin token: HttpOnly, SameSite=Strict, 12 h (Secure flag available for HTTPS hosting). The reviewer name becomes the audit actor `human:<name>`. Every non-GET request also needs a per-session CSRF token (HMAC). Unauthenticated GET → redirect to sign-in; POST → 401. Real identity (SSO) is left to hosting (plan 12.1).
+- **Headers:** CSP `default-src 'none'` (inline styles only, no scripts), `X-Frame-Options: DENY`, `nosniff`, `no-referrer`. Links built from third-party data are rendered only if they are `https:` (blocks `javascript:` URLs).
+- **Queue:** defaults to status `candidate` and scope "in scope for Next.js". Out-of-scope items are hidden, with a count and a filter (`out` / `all`), per the owner decision. Filters: status, scope, category, search.
+- **Priority score:** provenance (Anthropic/vendor +3, community +1), gate 2 (pass +2, soft +1), confidence (high +3, medium +2), Next.js category gap (no recommended item in the category +3, one +1); failed gate 0 or gate 3 −5 (still listed). Ties: stars, then id.
+- **Item page:** metadata, classifier summary and relevance, install, capabilities, context overhead, latest health snapshot, every gate with evidence links, eval placeholder (M9), audit log, raw source records. The status form offers only transitions allowed from the current status. A security-flagged item (gate 3 failed) shows a red panel with its high/critical findings and an extra "security override note" field; without the note the change is refused (409) by `transitionStatus`.
+- **Scope toggle:** "mark in/out of scope for Next.js" updates `out_of_scope`. It isn't a status change, so it isn't in the status audit log.
+- **Claude Code changes page:** changelog and release notes newest first, filterable by flag.
+
 ## Dependencies
 
 One line each: why it was added.
@@ -176,3 +237,6 @@ One line each: why it was added.
 - `yaml` — parse `catalog/seed.yaml` (and later `sources.yaml`, `vendors.yaml`).
 - `@anthropic-ai/sdk` — Anthropic API client for classification (plan section 3).
 - `pg-boss` — Postgres-backed scheduler for the daily discovery job (plan section 3).
+- `@modelcontextprotocol/sdk` — MCP client for gate 0/3 (list tools over stdio in the sandbox, or HTTP for remote servers) (plan section 3).
+- `semver` — resolve dependency ranges to concrete versions for OSV queries.
+- `hono`, `@hono/node-server` — triage web server (plan section 3).

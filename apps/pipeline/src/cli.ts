@@ -15,6 +15,7 @@ import { runIntake } from './intake/run.js';
 import { formatSeedReport, importSeed } from './seed/import.js';
 import { readSeedFile } from './seed/seed-file.js';
 import { startWorker } from './worker.js';
+import { runGates, type GateSelection } from './gates/run.js';
 
 const DEFAULT_SEED_FILE = fileURLToPath(new URL('../../../catalog/seed.yaml', import.meta.url));
 
@@ -26,6 +27,8 @@ Commands:
            [--no-intake] [--no-classify]  Sources: ${SOURCE_NAMES.join(', ')}
   intake                               Re-run the intake filter over stored raw records
   classify [--limit <n>] [--stale]             Classify pending items; --stale also redoes older prompt versions (costs money)
+  gates [--item <id>]... | --pending | --recheck  [--limit <n>]
+                                       Run credibility gates 0-3 (Docker sandbox for MCP servers)
   worker                               Start the scheduler (daily discovery at DISCOVERY_CRON, UTC)
   spend                                Show Anthropic spend this ISO week and in total`;
 
@@ -108,6 +111,40 @@ async function main(argv: string[]): Promise<number> {
         );
         out(JSON.stringify(report, null, 2));
         return report.failed > 0 ? 1 : 0;
+      });
+    }
+    case 'gates': {
+      const { values } = parseArgs({
+        args: rest,
+        options: {
+          item: { type: 'string', multiple: true },
+          pending: { type: 'boolean' },
+          recheck: { type: 'boolean' },
+          limit: { type: 'string' },
+        },
+      });
+      const selection: GateSelection = values.item
+        ? { itemIds: values.item }
+        : { mode: values.recheck ? 'recheck' : 'pending' };
+      return withContext(async (ctx) => {
+        const reports = await runGates(
+          { ...ctx, vendors: await readVendors() },
+          selection,
+          values.limit ? { limit: Number(values.limit) } : {},
+        );
+        for (const r of reports) {
+          out(
+            `${r.error ? 'ERROR ' : ''}${r.id} @ ${r.version}  confidence=${r.confidence}  ${Object.entries(
+              r.results,
+            )
+              .map(([k, v]) => `${k.replace(/_.*/, '')}=${v}`)
+              .join(
+                ' ',
+              )}${r.statusChange ? `  → ${r.statusChange.to} (${r.statusChange.reason})` : ''}${r.error ? `  ${r.error}` : ''}`,
+          );
+        }
+        out(`Gated ${reports.length} item(s); ${reports.filter((r) => r.error).length} error(s).`);
+        return reports.some((r) => r.error) ? 1 : 0;
       });
     }
     case 'spend':

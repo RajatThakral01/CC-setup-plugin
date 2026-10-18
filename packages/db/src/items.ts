@@ -1,8 +1,14 @@
-import { eq } from 'drizzle-orm';
-import { actorSchema, checkTransition, type Actor, type Status } from '@cc-setup-agent/shared';
+import { desc, eq } from 'drizzle-orm';
+import {
+  actorSchema,
+  checkTransition,
+  HUMAN_ONLY_TARGETS,
+  type Actor,
+  type Status,
+} from '@cc-setup-agent/shared';
 import type { Db, DbOrTx } from './client.js';
 import { InvalidTransitionError, ItemNotFoundError } from './errors.js';
-import { catalogItems, statusEvents } from './schema.js';
+import { catalogItems, scorecards, statusEvents } from './schema.js';
 
 export type NewCatalogItem = Omit<
   typeof catalogItems.$inferInsert,
@@ -45,6 +51,8 @@ export async function transitionStatus(
   to: Status,
   actor: Actor,
   reason: string,
+  /** Required to approve an item whose latest scorecard failed the security gate (plan M4/M5). */
+  options: { overrideNote?: string } = {},
 ): Promise<{ from: Status; to: Status }> {
   if (reason.trim() === '') {
     throw new InvalidTransitionError(itemId, '?', to, 'a reason is required');
@@ -58,13 +66,34 @@ export async function transitionStatus(
     if (!row) throw new ItemNotFoundError(itemId);
     const check = checkTransition(row.status, to, actor);
     if (!check.ok) throw new InvalidTransitionError(itemId, row.status, to, check.reason);
+    const override = options.overrideNote?.trim();
+    if (HUMAN_ONLY_TARGETS.has(to)) {
+      const [latest] = await tx
+        .select({ gateResults: scorecards.gateResults })
+        .from(scorecards)
+        .where(eq(scorecards.itemId, itemId))
+        .orderBy(desc(scorecards.updatedAt))
+        .limit(1);
+      if (latest?.gateResults.gate3_security?.result === 'fail' && !override) {
+        throw new InvalidTransitionError(
+          itemId,
+          row.status,
+          to,
+          'security flags need a written override note',
+        );
+      }
+    }
     await tx
       .update(catalogItems)
       .set({ status: to, lastChecked: new Date() })
       .where(eq(catalogItems.id, itemId));
-    await tx
-      .insert(statusEvents)
-      .values({ itemId, fromStatus: row.status, toStatus: to, actor, reason });
+    await tx.insert(statusEvents).values({
+      itemId,
+      fromStatus: row.status,
+      toStatus: to,
+      actor,
+      reason: override ? `${reason} | override: ${override}` : reason,
+    });
     return { from: row.status, to };
   });
 }
