@@ -75,6 +75,29 @@ Defaults in `packages/shared/src/config.ts`; override with `MODEL_PRICING_JSON`.
 
 **Still unverified (check in M8/M9 before relying on them):** `--max-turns` is in the CLI reference but not in local `--help`; JSON fields `num_turns`, `duration_ms`, `is_error`; exact value formats of `enabledMcpjsonServers` / `enableAllProjectMcpServers`.
 
+## Milestone 1
+
+- **`kind` and `category` are nullable** in `catalog_items`: GitHub-search candidates have neither until classification. Seed hints (owner-approved `kind`/`category` in `catalog/seed.yaml`) fill them at import; classification fills only fields that are still null, so owner hints win.
+- **Extra columns beyond plan section 6:** `catalog_items.description`, `catalog_items.supersedes` (PRD 11.1 has it), `catalog_items.classification_state` (`pending` / `classified` / `needs_manual_classification`, from plan M3), `scorecards.id`/`updated_at`, `eval_runs.created_at`, `budget_ledger.cache_write_tokens`/`cache_read_tokens` (needed for exact cost).
+- **`claude_code_changes` table** (owner-approved): `source`, `external_id`, `version`, `title`, `body`, `flags[]`, `url`, `published_at`; unique on (`source`, `external_id`).
+- **Enums as Postgres enums** generated from the arrays in `packages/shared/src/enums.ts`; adding a value means a new migration.
+- **`source` enum:** `github_repo`, `npm_package`, `mcp_registry`, `marketplace`, `claude_code_changelog`, `claude_code_release`. A seed import stores raw records under `github_repo` / `npm_package`, so seed and discovery dedupe on the same keys.
+- **`capability` enum:** `shell`, `file_read`, `file_write`, `network`, `browser`, `database`, `code_execution`.
+- **Status transitions** (`packages/shared/src/status.ts`):
+  - candidate → watchlist, recommended_provisional\*, recommended\*, blocked, rejected
+  - watchlist → candidate, recommended_provisional\*, recommended\*, deprecated, blocked, rejected
+  - recommended_provisional → recommended\*, watchlist, deprecated, blocked, rejected
+  - recommended → recommended_provisional\*, watchlist, deprecated, blocked
+  - deprecated → candidate, watchlist, blocked
+  - blocked → candidate (human only: unblocking needs review)
+  - rejected → candidate (e.g. a new release fixes hygiene), blocked
+  - \* human actor (`human:<name>`) required. Same-status "transitions" and empty reasons are refused.
+- **Item creation is logged** as a `status_events` row with `from_status = null`, via `insertCandidate()`, which always forces `status = 'candidate'`.
+- **Budget ledger enforces three limits; the tightest wins:** the purpose's weekly share (classify = `BUDGET_SPLIT_CLASSIFY_USD`, eval = weekly − classify), the overall weekly cap, and the total cap across all weeks. `assertBudget()` is the pre-flight check (throws `BudgetExceededError`), `recordSpend()` writes the row after the call and warns past `TOTAL_BUDGET_WARN_USD`. Weeks are ISO weeks starting Monday 00:00 UTC, stored as the Monday's date.
+- **Costs** are rounded to 6 decimals (`numeric(12,6)`); a recorded cost from the API/CLI takes precedence over computed cost.
+- **DB tests** create a fresh, migrated database per test file (`createTestDatabase()` in `@cc-setup-agent/db/testing`) and drop it afterwards, so files run in parallel and every run proves migrations apply to an empty database. Base URL: `TEST_DATABASE_URL`, else `DATABASE_URL`.
+- **MCP tool I/O schemas** are defined now (plan M1) and may be refined in M7; outputs use relative paths only and env var names only.
+
 ## Dependencies
 
 One line each: why it was added.
@@ -88,3 +111,5 @@ One line each: why it was added.
 - `zod` — validation of config and all external data (plan section 3).
 - `pino` — JSON logging (plan section 3).
 - `pg`, `@types/pg` — Postgres driver (used by Drizzle from M1; DB health check in M0).
+- `drizzle-orm` — ORM and migrator (plan section 3).
+- `drizzle-kit` (dev) — generates SQL migrations from the schema (plan section 3).

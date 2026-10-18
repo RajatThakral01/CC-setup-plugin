@@ -4,3 +4,4 @@ pnpm-lock.yaml
 docs/PRD.md
 docs/IMPLEMENTATION_PLAN.md
 catalog/*.proposed.yaml
+packages/db/drizzle

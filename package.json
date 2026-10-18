@@ -14,7 +14,9 @@
     "test": "vitest run",
     "check:models": "tsx --conditions=source scripts/check-forbidden-models.ts",
     "keys:generate": "tsx --conditions=source scripts/keys-generate.ts",
-    "db:health": "tsx --conditions=source scripts/db-health.ts"
+    "db:health": "tsx --conditions=source scripts/db-health.ts",
+    "db:migrate": "tsx --conditions=source scripts/db-migrate.ts",
+    "db:generate": "pnpm --filter @cc-setup-agent/db db:generate"
   },
   "devDependencies": {
     "@cc-setup-agent/core": "workspace:*",

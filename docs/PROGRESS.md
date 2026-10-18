@@ -3,7 +3,7 @@
 ## Current state
 
 - **Session range:** Milestones 0–3 (owner-approved 2026-10-19).
-- **Current milestone:** 1 — Shared schemas and database.
+- **Current milestone:** 2 — Seed catalog importer.
 - **Total Anthropic API spend to date:** USD 0.00 (no API calls yet).
 
 ## Milestones
@@ -11,8 +11,8 @@
 | #   | Milestone                   | Status | Commit |
 | --- | --------------------------- | ------ | ------ |
 | 0   | Repo and tooling            | Done   | M0     |
-| 1   | Shared schemas and database | Next   |        |
-| 2   | Seed catalog importer       |        |        |
+| 1   | Shared schemas and database | Done   | M1     |
+| 2   | Seed catalog importer       | Next   |        |
 | 3   | Discovery jobs              |        |        |
 | 4   | Credibility gates 0 to 3    |        |        |
 | 5   | Triage UI                   |        |        |
@@ -39,6 +39,23 @@ Acceptance:
 - [x] `pnpm install && pnpm build && pnpm lint && pnpm test` pass locally (also from a clean clone). CI workflow written; first real CI run happens when the owner pushes.
 - [x] `docker compose up -d` starts Postgres; `pnpm db:health` connects.
 - [x] Config loader fails clearly on a missing variable and refuses an Opus model ID.
+
+## Milestone 1 — Shared schemas and database (done)
+
+Built:
+
+- `packages/shared`: zod schemas and types for catalog items, install details (pinned versions only, env var names only), classification, gate results, scorecards, eval summaries, the snapshot file, and every MCP tool's input/output. Enums for kind, category (14 incl. auth/payments/email/cms), provenance, status, capability, source, confidence.
+- `packages/db`: Drizzle schema for the 9 planned tables plus `claude_code_changes`; first migration `0000_init`; `pnpm db:migrate`.
+- `transitionStatus()` (single path for status changes, transactional audit log) and `insertCandidate()`.
+- Budget ledger: `recordSpend()`, `remainingBudget()`, `assertBudget()`, `spendSummary()`; enforces purpose-weekly, weekly and total caps; warns past USD 30 total.
+
+Acceptance:
+
+- [x] `pnpm db:migrate` creates all tables on a fresh database (dev DB, plus every DB test run).
+- [x] Invalid transitions throw; `recommended` by `system` throws.
+- [x] Snapshot schema round-trips a fixture catalog (`test/fixtures/catalog/snapshot.json`).
+
+Tests: all 49 status pairs × 2 actor types, ledger week boundaries in UTC, all three caps, schema good/bad payloads. 192 tests total.
 
 ## Open questions
 

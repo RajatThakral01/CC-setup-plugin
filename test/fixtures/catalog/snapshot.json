@@ -1,0 +1,68 @@
+{
+  "schemaVersion": 1,
+  "version": "2026.10.19-1",
+  "generatedAt": "2026-10-19T02:00:00.000Z",
+  "items": [
+    {
+      "id": "example-mcp-alpha",
+      "name": "Example MCP Alpha",
+      "kind": "mcp_server",
+      "category": "browser_testing",
+      "stacks": ["nextjs"],
+      "sourceUrl": "https://example.test/example-org/example-mcp-alpha",
+      "publisher": "example-org",
+      "provenance": "official_vendor",
+      "status": "recommended",
+      "version": "1.2.3",
+      "install": {
+        "method": "npx",
+        "package": "@example/mcp-alpha",
+        "version": "1.2.3",
+        "envVars": ["EXAMPLE_ALPHA_TOKEN"]
+      },
+      "capabilities": ["browser", "network"],
+      "contextOverheadTokens": 1800,
+      "supersedes": null,
+      "supersededBy": null,
+      "scorecard": {
+        "confidence": "high",
+        "gates": {
+          "gate0_hygiene": {
+            "result": "pass",
+            "evidence": [],
+            "checkedAt": "2026-10-18T02:00:00.000Z"
+          }
+        },
+        "securityFlags": 0,
+        "reviewedAt": "2026-10-18T09:00:00.000Z"
+      },
+      "evalSummary": null,
+      "lastChecked": "2026-10-18T02:00:00.000Z"
+    },
+    {
+      "id": "example-skill-beta",
+      "name": "Example Skill Beta",
+      "kind": "skill",
+      "category": "unit_testing",
+      "stacks": ["nextjs"],
+      "sourceUrl": "https://example.test/example-org/example-skill-beta",
+      "publisher": null,
+      "provenance": "community",
+      "status": "blocked",
+      "version": "0.4.0",
+      "install": { "method": "skill_copy", "envVars": [] },
+      "capabilities": [],
+      "contextOverheadTokens": null,
+      "supersedes": null,
+      "supersededBy": "example-mcp-alpha",
+      "scorecard": {
+        "confidence": "low",
+        "gates": {},
+        "securityFlags": 2,
+        "reviewedAt": null
+      },
+      "evalSummary": null,
+      "lastChecked": "2026-10-17T02:00:00.000Z"
+    }
+  ]
+}
