@@ -11,8 +11,11 @@
     }
   },
   "dependencies": {
-    "@cc-setup-agent/shared": "workspace:*",
     "@cc-setup-agent/core": "workspace:*",
-    "@cc-setup-agent/db": "workspace:*"
+    "@cc-setup-agent/db": "workspace:*",
+    "@cc-setup-agent/shared": "workspace:*",
+    "drizzle-orm": "^0.45.4",
+    "yaml": "^2.9.1",
+    "zod": "^4.6.7"
   }
 }

@@ -98,6 +98,17 @@ Defaults in `packages/shared/src/config.ts`; override with `MODEL_PRICING_JSON`.
 - **DB tests** create a fresh, migrated database per test file (`createTestDatabase()` in `@cc-setup-agent/db/testing`) and drop it afterwards, so files run in parallel and every run proves migrations apply to an empty database. Base URL: `TEST_DATABASE_URL`, else `DATABASE_URL`.
 - **MCP tool I/O schemas** are defined now (plan M1) and may be refined in M7; outputs use relative paths only and env var names only.
 
+## Milestone 2
+
+- **`pnpm run pipeline <cmd>`** instead of `pnpm pipeline`: pnpm 12 ships a built-in `pipeline` command that shadows the script. CLAUDE.md updated.
+- **No `@octokit/rest`** (plan section 3 named it): GitHub calls go through the shared HTTP client, which already handles retries, `Retry-After`/`x-ratelimit-reset` and per-host spacing, and validates every response with zod at the boundary. One retry/rate-limit path, one fewer dependency. Revisit if we need GraphQL or pagination helpers.
+- **Seed file format:** `source_url` + optional `note`, plus optional owner-approved `kind`/`category` hints (the approved list included them, with the auth/payments/email/cms re-filing). Hints are written at import; classification never overrides them.
+- **Canonical source URLs** come from the GitHub API response (`full_name`), so renamed repos dedupe correctly; folder items use `https://github.com/<full_name>/tree/<ref>/<path>`. Duplicate checks compare source URLs case-insensitively and package names exactly (FR-D8).
+- **Raw record keys:** GitHub repo → numeric repo `id` (stable across renames); folder item → `<repo id>:<ref>/<path>`; npm → package name. npm packuments are trimmed (latest manifest, dist-tags, timestamps, repository, licence) because full packuments list every version.
+- **Skip rules:** 404 (repo, folder or package) → `not_found`; archived repo, or npm package whose GitHub repo is archived → `archived`; npm latest version deprecated → `deprecated`; existing item → `duplicate`. Other errors → `failed`; the run continues and exits non-zero.
+- **Item ids:** `<owner>-<repo>` for repos, `<owner>-<repo>-<folder>` for folders, scope + name for npm packages; `-2`, `-3`… on collision.
+- **Live import (2026-10-19):** 117 created, 0 skipped, 0 failed; second run 0 created, 117 duplicates.
+
 ## Dependencies
 
 One line each: why it was added.
@@ -113,3 +124,4 @@ One line each: why it was added.
 - `pg`, `@types/pg` — Postgres driver (used by Drizzle from M1; DB health check in M0).
 - `drizzle-orm` — ORM and migrator (plan section 3).
 - `drizzle-kit` (dev) — generates SQL migrations from the schema (plan section 3).
+- `yaml` — parse `catalog/seed.yaml` (and later `sources.yaml`, `vendors.yaml`).

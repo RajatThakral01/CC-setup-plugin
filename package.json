@@ -16,7 +16,8 @@
     "keys:generate": "tsx --conditions=source scripts/keys-generate.ts",
     "db:health": "tsx --conditions=source scripts/db-health.ts",
     "db:migrate": "tsx --conditions=source scripts/db-migrate.ts",
-    "db:generate": "pnpm --filter @cc-setup-agent/db db:generate"
+    "db:generate": "pnpm --filter @cc-setup-agent/db db:generate",
+    "pipeline": "tsx --conditions=source apps/pipeline/src/cli.ts"
   },
   "devDependencies": {
     "@cc-setup-agent/core": "workspace:*",

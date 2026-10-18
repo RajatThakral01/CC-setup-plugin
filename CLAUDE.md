@@ -34,7 +34,7 @@ Every other choice: decide, record it in `docs/DECISIONS.md`, keep going. Never 
 - `pnpm install` / `pnpm build` / `pnpm typecheck` / `pnpm lint` / `pnpm test`
 - `docker compose up -d` — local Postgres
 - `pnpm db:migrate` — apply Drizzle migrations; `pnpm db:generate` — create a migration after schema changes
-- `pnpm pipeline <cmd>` — seed, discover, gates, snapshot, worker
+- `pnpm run pipeline <cmd>` — seed, discover, gates, snapshot, worker (`run` is required: pnpm 12 has a built-in `pnpm pipeline`)
 - `pnpm triage` — local triage UI
 - `pnpm evals run` — real eval runs (costs money; only when the owner asks)
 - `pnpm db:health` — check the database connection
