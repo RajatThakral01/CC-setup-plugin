@@ -1,0 +1,418 @@
+import { html, raw } from 'hono/html';
+import type { HtmlEscapedString } from 'hono/utils/html';
+import {
+  ALLOWED_TRANSITIONS,
+  CATEGORIES,
+  STATUSES,
+  type GateResult,
+  type Status,
+} from '@cc-setup-agent/shared';
+import type { claudeCodeChanges } from '@cc-setup-agent/db';
+import {
+  MVP_STACK,
+  securityFlagged,
+  type ItemDetail,
+  type QueueEntry,
+  type QueueFilter,
+} from './queries.js';
+
+type View = HtmlEscapedString | Promise<HtmlEscapedString>;
+
+/** Links built from third-party data: only https URLs are rendered as links. */
+export const safeHref = (url: string): string => (/^https:\/\//i.test(url) ? url : '#');
+
+const STYLE = `
+:root { --fg:#1d1d1f; --muted:#6e6e73; --bg:#fff; --line:#e5e5ea; --pass:#1a7f37; --soft:#9a6700; --fail:#cf222e; --na:#6e7781; --accent:#0969da; }
+* { box-sizing: border-box; }
+body { margin: 0; font: 14px/1.45 -apple-system, system-ui, sans-serif; color: var(--fg); background: var(--bg); }
+header { display:flex; gap:16px; align-items:center; padding:10px 20px; border-bottom:1px solid var(--line); }
+header a { color: var(--fg); text-decoration:none; font-weight:600; }
+header .who { margin-left:auto; color: var(--muted); }
+main { padding: 16px 20px; max-width: 1200px; }
+table { border-collapse: collapse; width: 100%; }
+th, td { text-align:left; padding:6px 8px; border-bottom:1px solid var(--line); vertical-align: top; }
+th { font-weight:600; color: var(--muted); font-size: 12px; }
+a { color: var(--accent); }
+.badge { display:inline-block; padding:1px 6px; border-radius:10px; font-size:12px; border:1px solid currentColor; }
+.pass { color: var(--pass); } .soft_fail { color: var(--soft); } .fail { color: var(--fail); } .not_run { color: var(--na); }
+.flag { background:#fff0f0; border:2px solid var(--fail); padding:10px 14px; border-radius:6px; margin: 12px 0; }
+.flag h3 { margin: 0 0 6px; color: var(--fail); }
+.notice { background:#f0f6ff; border:1px solid var(--accent); padding:8px 12px; border-radius:6px; margin:12px 0; }
+.error { background:#fff0f0; border:1px solid var(--fail); padding:8px 12px; border-radius:6px; margin:12px 0; }
+.muted { color: var(--muted); }
+form.filters { display:flex; gap:8px; flex-wrap:wrap; margin-bottom:12px; align-items:center; }
+textarea { width:100%; min-height:60px; font: inherit; }
+label { display:block; margin-top:8px; font-weight:600; }
+dl { display:grid; grid-template-columns: 180px 1fr; gap:4px 12px; }
+dt { color: var(--muted); }
+section { margin-top: 20px; }
+pre { white-space: pre-wrap; background:#f6f8fa; padding:8px; border-radius:4px; }
+`;
+
+export function layout(title: string, body: View, reviewer?: string, csrf?: string): View {
+  return html`<!doctype html>
+    <html lang="en">
+      <head>
+        <meta charset="utf-8" />
+        <meta name="viewport" content="width=device-width, initial-scale=1" />
+        <title>${title} · Triage</title>
+        <style>
+          ${raw(STYLE)}
+        </style>
+      </head>
+      <body>
+        <header>
+          <a href="/">Candidate queue</a>
+          <a href="/changes">Claude Code changes</a>
+          ${
+            reviewer
+              ? html`<span class="who"
+                  >Signed in as ${reviewer}
+                  <form method="post" action="/logout" style="display:inline">
+                    <input type="hidden" name="csrf" value="${csrf ?? ''}" /><button>
+                      Sign out
+                    </button>
+                  </form></span
+                >`
+              : ''
+          }
+        </header>
+        <main>${body}</main>
+      </body>
+    </html>`;
+}
+
+const gateBadge = (label: string, g: GateResult | undefined) =>
+  html`<span class="badge ${g?.result ?? 'not_run'}" title="${g?.notes ?? ''}"
+    >${label} ${g?.result ?? '–'}</span
+  >`;
+
+export function loginPage(error?: string): View {
+  return layout(
+    'Sign in',
+    html`<h1>Sign in</h1>
+      ${error ? html`<div class="error">${error}</div>` : ''}
+      <form method="post" action="/login">
+        <label
+          >Your name (recorded in the audit log)
+          <input name="name" required pattern="[A-Za-z0-9._@-]{1,64}"
+        /></label>
+        <label>Admin token <input name="token" type="password" required /></label>
+        <p><button>Sign in</button></p>
+      </form>`,
+  );
+}
+
+export function queuePage(
+  entries: QueueEntry[],
+  filter: QueueFilter,
+  counts: { in: number; out: number },
+  reviewer: string,
+  csrf: string,
+): View {
+  const opt = (value: string, current: string | undefined, label = value) =>
+    html`<option value="${value}" ${value === current ? 'selected' : ''}>${label}</option>`;
+  return layout(
+    'Candidate queue',
+    html`<h1>Candidate queue</h1>
+      <form class="filters" method="get" action="/">
+        <select name="status">
+          ${opt('all', filter.status, 'all statuses')} ${STATUSES.map((s) => opt(s, filter.status))}
+        </select>
+        <select name="scope">
+          ${opt('in', filter.scope, `in scope for Next.js (${counts.in})`)}
+          ${opt('out', filter.scope, `out of scope (${counts.out})`)}
+          ${opt('all', filter.scope, 'all')}
+        </select>
+        <select name="category">
+          ${opt('', filter.category ?? '', 'all categories')}
+          ${CATEGORIES.map((c) => opt(c, filter.category))}
+        </select>
+        <input name="q" placeholder="search id or name" value="${filter.q ?? ''}" />
+        <button>Filter</button>
+        ${
+          filter.scope === 'in' && counts.out > 0
+            ? html`<span class="muted">${counts.out} out-of-scope item(s) hidden.</span>`
+            : ''
+        }
+      </form>
+      <table>
+        <thead>
+          <tr>
+            <th>Priority</th>
+            <th>Item</th>
+            <th>Kind / category</th>
+            <th>Provenance</th>
+            <th>Confidence</th>
+            <th>Gates</th>
+            <th>Stars</th>
+            <th>Status</th>
+          </tr>
+        </thead>
+        <tbody>
+          ${entries.map(
+            (e) =>
+              html`<tr>
+                <td>${e.priority}</td>
+                <td>
+                  <a href="/items/${e.item.id}">${e.item.name}</a>
+                  ${e.securityFlagged ? html` <span class="badge fail">security flag</span>` : ''}
+                  ${e.item.outOfScope.includes(MVP_STACK) ? html` <span class="badge not_run">out of scope</span>` : ''}
+                  <div class="muted">${e.item.id}</div>
+                </td>
+                <td>${e.item.kind ?? '?'} / ${e.item.category ?? '?'}</td>
+                <td>${e.item.provenance ?? '?'}</td>
+                <td>${e.scorecard?.confidence ?? 'not gated'}</td>
+                <td>
+                  ${gateBadge('G0', e.scorecard?.gateResults.gate0_hygiene)}
+                  ${gateBadge('G1', e.scorecard?.gateResults.gate1_provenance)}
+                  ${gateBadge('G2', e.scorecard?.gateResults.gate2_health)}
+                  ${gateBadge('G3', e.scorecard?.gateResults.gate3_security)}
+                </td>
+                <td>${e.stars ?? '–'}</td>
+                <td>${e.item.status}</td>
+              </tr>`,
+          )}
+        </tbody>
+      </table>
+      ${entries.length === 0 ? html`<p class="muted">Nothing matches.</p>` : ''}`,
+    reviewer,
+    csrf,
+  );
+}
+
+export function itemPage(
+  d: ItemDetail,
+  reviewer: string,
+  csrf: string,
+  message?: { kind: 'notice' | 'error'; text: string },
+): View {
+  const { item } = d;
+  const card = d.scorecards[0] ?? null;
+  const flagged = securityFlagged(card);
+  const targets = ALLOWED_TRANSITIONS[item.status as Status];
+  const gates: Array<[string, GateResult | undefined]> = [
+    ['Gate 0 · hygiene', card?.gateResults.gate0_hygiene],
+    ['Gate 1 · provenance', card?.gateResults.gate1_provenance],
+    ['Gate 2 · health', card?.gateResults.gate2_health],
+    ['Gate 3 · security', card?.gateResults.gate3_security],
+  ];
+  const out = item.outOfScope.includes(MVP_STACK);
+  return layout(
+    item.name,
+    html`<p><a href="/">← queue</a></p>
+      <h1>${item.name} <span class="badge">${item.status}</span></h1>
+      ${message ? html`<div class="${message.kind}">${message.text}</div>` : ''}
+      ${
+        flagged
+          ? html`<div class="flag">
+              <h3>Security flag</h3>
+              <p>Gate 3 failed. Approving this item needs a written override note.</p>
+              <ul>
+                ${(card?.securityFindings ?? [])
+                  .filter((f) => f.severity === 'high' || f.severity === 'critical')
+                  .map(
+                    (f) =>
+                      html`<li>
+                        <strong>${f.severity}</strong>:
+                        ${f.description}${f.evidence ? html` — <code>${f.evidence}</code>` : ''}
+                      </li>`,
+                  )}
+              </ul>
+            </div>`
+          : ''
+      }
+      <dl>
+        <dt>Id</dt>
+        <dd>${item.id}</dd>
+        <dt>Source</dt>
+        <dd>
+          <a href="${safeHref(item.sourceUrl)}" rel="noreferrer noopener">${item.sourceUrl}</a>
+        </dd>
+        <dt>Kind / category</dt>
+        <dd>${item.kind ?? '?'} / ${item.category ?? '?'}</dd>
+        <dt>Stacks</dt>
+        <dd>
+          ${item.stacks.join(', ') || '–'}
+          ${out ? html`<span class="badge not_run">out of scope for Next.js</span>` : ''}
+        </dd>
+        <dt>Publisher / provenance</dt>
+        <dd>${item.publisher ?? '?'} / ${item.provenance ?? '?'}</dd>
+        <dt>Description</dt>
+        <dd>${item.description ?? '–'}</dd>
+        <dt>Classifier summary</dt>
+        <dd>
+          ${item.classification?.summary ?? '–'}
+          ${item.classification ? html`<span class="muted">(${item.classification.model}, ${item.classification.promptVersion}, relevant: ${String(item.classification.relevant)})</span>` : ''}
+        </dd>
+        <dt>Install</dt>
+        <dd><code>${item.install ? JSON.stringify(item.install) : '–'}</code></dd>
+        <dt>Capabilities</dt>
+        <dd>${item.capabilities.join(', ') || '–'}</dd>
+        <dt>Context overhead</dt>
+        <dd>${item.contextOverheadTokens ?? '–'} tokens</dd>
+        <dt>Health</dt>
+        <dd>
+          ${
+            d.snapshot
+              ? `stars ${d.snapshot.stars ?? '?'}, contributors ${d.snapshot.contributors ?? '?'}, open issues ${d.snapshot.openIssues ?? '?'}, last commit ${d.snapshot.lastCommitAt?.toISOString().slice(0, 10) ?? '?'}`
+              : '–'
+          }
+        </dd>
+        <dt>Last checked</dt>
+        <dd>${item.lastChecked?.toISOString() ?? 'never'}</dd>
+      </dl>
+
+      <section>
+        <h2>
+          Scorecard
+          ${card ? html`<span class="muted">version ${card.version} · confidence ${card.confidence}</span>` : ''}
+        </h2>
+        ${
+          card
+            ? gates.map(
+                ([label, g]) =>
+                  html`<h3>
+                      ${label}
+                      <span class="badge ${g?.result ?? 'not_run'}">${g?.result ?? 'not run'}</span>
+                    </h3>
+                    ${g?.notes ? html`<p>${g.notes}</p>` : ''}
+                    <ul>
+                      ${(g?.evidence ?? []).map(
+                        (e) =>
+                          html`<li>
+                            ${e.label}${e.detail ? html`: ${e.detail}` : ''}
+                            ${e.url ? html` <a href="${safeHref(e.url)}" rel="noreferrer noopener">link</a>` : ''}
+                          </li>`,
+                      )}
+                    </ul>`,
+              )
+            : html`<p class="muted">Not gated yet.</p>`
+        }
+        <h3>Eval results</h3>
+        <p class="muted">
+          ${card?.evalSummary ? JSON.stringify(card.evalSummary) : 'No eval results yet (Milestone 9).'}
+        </p>
+      </section>
+
+      <section>
+        <h2>Change status</h2>
+        ${
+          targets.length === 0
+            ? html`<p class="muted">No transitions available from ${item.status}.</p>`
+            : html`<form method="post" action="/items/${item.id}/status">
+                <input type="hidden" name="csrf" value="${csrf}" />
+                <label
+                  >New status
+                  <select name="to" required>
+                    ${targets.map((t) => html`<option value="${t}">${t}</option>`)}
+                  </select></label
+                >
+                <label>Reason (required) <textarea name="reason" required></textarea></label>
+                ${
+                  flagged
+                    ? html`<label
+                        >Security override note (required to approve this flagged item)
+                        <textarea name="override"></textarea>
+                      </label>`
+                    : ''
+                }
+                <p><button>Change status as ${reviewer}</button></p>
+              </form>`
+        }
+        <form method="post" action="/items/${item.id}/scope">
+          <input type="hidden" name="csrf" value="${csrf}" />
+          <input type="hidden" name="out" value="${out ? '0' : '1'}" />
+          <button>${out ? 'Mark in scope for Next.js' : 'Mark out of scope for Next.js'}</button>
+        </form>
+      </section>
+
+      <section>
+        <h2>Audit log</h2>
+        <table>
+          <thead>
+            <tr>
+              <th>When</th>
+              <th>Change</th>
+              <th>Actor</th>
+              <th>Reason</th>
+            </tr>
+          </thead>
+          <tbody>
+            ${d.events.map(
+              (e) =>
+                html`<tr>
+                  <td>${e.createdAt.toISOString()}</td>
+                  <td>${e.fromStatus ?? '(created)'} → ${e.toStatus}</td>
+                  <td>${e.actor}</td>
+                  <td>${e.reason}</td>
+                </tr>`,
+            )}
+          </tbody>
+        </table>
+      </section>
+
+      <section>
+        <h2>Raw source records</h2>
+        <table>
+          <thead>
+            <tr>
+              <th>Source</th>
+              <th>External id</th>
+              <th>Intake</th>
+              <th>Stars</th>
+              <th>Fetched</th>
+            </tr>
+          </thead>
+          <tbody>
+            ${d.records.map(
+              (r) =>
+                html`<tr>
+                  <td>${r.source}</td>
+                  <td>${r.externalId}</td>
+                  <td>${r.intakeState}</td>
+                  <td>${r.stars ?? '–'}</td>
+                  <td>${r.fetchedAt.toISOString().slice(0, 10)}</td>
+                </tr>`,
+            )}
+          </tbody>
+        </table>
+      </section>`,
+    reviewer,
+    csrf,
+  );
+}
+
+export function changesPage(
+  changes: Array<typeof claudeCodeChanges.$inferSelect>,
+  flag: string | undefined,
+  reviewer: string,
+  csrf: string,
+): View {
+  const flags = ['plugins', 'mcp', 'settings', 'hooks', 'skills', 'models'];
+  return layout(
+    'Claude Code changes',
+    html`<h1>Claude Code changes</h1>
+      <p>
+        Filter: <a href="/changes">all</a>
+        ${flags.map((f) => html` · <a href="/changes?flag=${f}">${f === flag ? html`<strong>${f}</strong>` : f}</a>`)}
+      </p>
+      ${changes.map(
+        (c) =>
+          html`<section>
+            <h3>
+              ${c.title}
+              <span class="muted"
+                >${c.source === 'claude_code_release' ? 'release' : 'changelog'}${c.publishedAt ? ` · ${c.publishedAt.toISOString().slice(0, 10)}` : ''}</span
+              >
+              ${c.flags.map((f) => html` <span class="badge soft_fail">${f}</span>`)}
+            </h3>
+            ${c.url ? html`<a href="${safeHref(c.url)}" rel="noreferrer noopener">source</a>` : ''}
+            <pre>${c.body}</pre>
+          </section>`,
+      )}
+      ${changes.length === 0 ? html`<p class="muted">No change notes yet. Run discovery.</p>` : ''}`,
+    reviewer,
+    csrf,
+  );
+}

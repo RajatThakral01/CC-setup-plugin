@@ -3,7 +3,7 @@
 ## Current state
 
 - **Session range:** Milestones 4–5 (owner-approved 2026-10-19).
-- **Current milestone:** 5 — Triage UI.
+- **Current milestone:** 6 — Signed catalog snapshot (not started; session range 4–5 complete, awaiting owner).
 - **Total Anthropic API spend to date:** USD 0.1359 (Haiku classification only). Weekly cap USD 20, total cap USD 40.
 - **Remote:** https://github.com/RajatThakral01/CC-setup-plugin — pushed after every milestone; CI green.
 
@@ -16,7 +16,7 @@
 | 2   | Seed catalog importer       | Done   | M2     |
 | 3   | Discovery jobs              | Done   | M3     |
 | 4   | Credibility gates 0 to 3    | Done   | M4     |
-| 5   | Triage UI                   | Next   |        |
+| 5   | Triage UI                   | Done   | M5     |
 | 6   | Signed catalog snapshot     |        |        |
 | 7   | Plugin MCP server           |        |        |
 | 8   | Plugin packaging            |        |        |
@@ -116,6 +116,22 @@ Acceptance:
 Tests: each gate with fixtures (clean, abandoned, vulnerable dependency, poisoned description, install script), confidence, sandbox policy (every rule), install resolution, OSV, start-failure classification, gateItem end to end on a test DB. 365 tests total, including 4 real-Docker tests (run in CI).
 
 Deviation worth a look: gate 0 hard-rejects only proven hygiene failures. "Starts without configuration" and "install method found" are soft, because the first live run wrongly rejected official servers that need an API key or are remote-only (see DECISIONS M4).
+
+## Milestone 5 — Triage UI (done)
+
+Built:
+
+- Hono server (`pnpm triage`) on `TRIAGE_HOST:TRIAGE_PORT` (127.0.0.1:4400), protected by `TRIAGE_ADMIN_TOKEN` (signed HttpOnly SameSite=Strict session cookie, CSRF tokens on every form, strict security headers, https-only links).
+- Candidate queue sorted by priority (provenance, health, confidence, Next.js category gaps), filters for status, scope, category and search; out-of-scope items hidden by default with a count and a filter.
+- Item page: metadata, classification, install, capabilities, context overhead, health, every gate with evidence links, eval placeholder, audit log, raw records; status form limited to allowed transitions and requiring a reason; security-flagged items show a red panel and need a written override note; scope toggle.
+- "Claude Code changes" page with flag filters.
+
+Acceptance:
+
+- [x] Owner can approve an item to `recommended_provisional` with a reason, and the audit log shows it (route test: `human:owner` event with the reason, shown on the item page).
+- [x] A flagged security item shows the flag prominently and requires a written override (route test: red panel with findings; 409 without the note; the note is recorded in the audit reason).
+
+Tests: route tests for auth (sign-in, forged/tampered sessions, weak token, CSRF), queue and scope filtering, escaping of hostile data and non-https links, transitions, validation, override, scope toggle, changes page; priority score. Live smoke test: server starts with the `.env` token, sign-in page 200, unauthenticated page → sign-in redirect, unauthenticated POST 401.
 
 ## Open questions
 
