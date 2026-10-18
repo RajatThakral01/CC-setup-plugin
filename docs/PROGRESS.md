@@ -2,9 +2,10 @@
 
 ## Current state
 
-- **Session range:** Milestones 0–3 (owner-approved 2026-10-19).
-- **Current milestone:** 4 — Credibility gates 0 to 3 (not started; session range 0–3 complete, awaiting owner).
-- **Total Anthropic API spend to date:** USD 0.0313 (148 Haiku classification calls, 2026-10-19). Weekly cap USD 20, total cap USD 40.
+- **Session range:** Milestones 4–5 (owner-approved 2026-10-19).
+- **Current milestone:** 4 — Credibility gates 0 to 3.
+- **Total Anthropic API spend to date:** USD 0.1359 (Haiku classification only). Weekly cap USD 20, total cap USD 40.
+- **Remote:** https://github.com/RajatThakral01/CC-setup-plugin — pushed after every milestone; CI green.
 
 ## Milestones
 
@@ -91,7 +92,11 @@ Acceptance:
 
 Tests: normalisers against anonymised recorded responses, GraphQL batching, dedupe/linking, every filter reason, vendor exception, daily cap and next-day deferral, refresh path, LLM client (pre-flight, ledger, Opus refusal, invalid output), classification (hints win, retry, budget stop, API failures), discovery runner isolation, pg-boss schedule. 263 tests total.
 
+## After Milestone 3 — owner follow-ups (done)
+
+- Remote `origin` added, history pushed; CI fixed (gitleaks CLI in a pinned container) and green on GitHub.
+- Intake priority: up to 300 filter-passing records classified per day before ranking; slots filled by Next.js relevance, then vendor, star velocity, stars; irrelevant intake items marked out of scope for Next.js. Prompt `classify-v2`; all 147 items re-classified (10 marked out of scope); 300 deferred records classified live (223 Next.js-relevant).
+
 ## Open questions
 
-- **Registry "verified publishers":** the Registry exposes no such flag; only namespaces listed in `catalog/vendors.yaml` skip the star threshold for now (see DECISIONS M3).
-- **Vendor-first priority** lets Anthropic's ~50 in-repo marketplace plugins (incl. non-Next.js ones like language LSPs) take the first days' 30 slots; 1,300 records are deferred. Consider adding stack relevance to intake priority.
+- None.

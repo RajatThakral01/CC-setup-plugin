@@ -57,6 +57,14 @@ export const classificationSchema = z.object({
 });
 export type Classification = z.infer<typeof classificationSchema>;
 
+/** Stack tags that make a tool useful in a Next.js project (owner decision 2026-10-19). */
+export const NEXTJS_SCOPE_TAGS: readonly string[] = ['nextjs', 'react', 'any'];
+
+/** Relevant to the Next.js stack: a real setup item tagged nextjs, react or stack-independent. */
+export function isNextjsRelevant(c: Pick<Classification, 'relevant' | 'stacks'>): boolean {
+  return c.relevant && c.stacks.some((s) => NEXTJS_SCOPE_TAGS.includes(s));
+}
+
 export const catalogItemSchema = z.object({
   id: itemIdSchema,
   name: z.string().min(1),

@@ -1,5 +1,6 @@
-import type { Logger } from '@cc-setup-agent/core';
+import type { LlmClient, Logger } from '@cc-setup-agent/core';
 import {
+  BudgetExceededError,
   and,
   asc,
   eq,
@@ -16,7 +17,15 @@ import {
   type Db,
   type DbOrTx,
 } from '@cc-setup-agent/db';
-import type { Source } from '@cc-setup-agent/shared';
+import {
+  isNextjsRelevant,
+  type AppConfig,
+  type Classification,
+  type Source,
+} from '@cc-setup-agent/shared';
+import { PROMPT_VERSION } from '../classify/classifier.js';
+import { classifySource, MAX_CONSECUTIVE_FAILURES, outOfScopeFor } from '../classify/run.js';
+import type { NpmClient } from '../sources/npm.js';
 import type { Vendors } from '../catalog-config.js';
 import type { GithubClient, RepoFacts } from '../sources/github.js';
 import type { CandidateDraft } from '../sources/types.js';
@@ -26,6 +35,7 @@ import {
   evaluateIntake,
   starVelocity7d,
   type IntakeReason,
+  type Relevance,
 } from './filter.js';
 import { normalizeRecord } from './normalize.js';
 
@@ -35,6 +45,8 @@ export interface IntakeDeps {
   db: Db;
   github: GithubClient;
   logger: Logger;
+  /** When present, filter-passing records are classified before ranking (owner decision). */
+  classify?: { llm: LlmClient; npm: NpmClient; config: AppConfig };
 }
 
 export interface IntakeOptions {
@@ -42,6 +54,8 @@ export interface IntakeOptions {
   minStars: number;
   dailyCap: number;
   refreshLimit: number;
+  /** Filter-passing records classified per UTC day (CLASSIFY_DAILY_RECORD_LIMIT). */
+  classifyDailyLimit?: number;
   now?: Date;
 }
 
@@ -54,6 +68,9 @@ export interface IntakeReport {
   notApplicable: number;
   refreshed: number;
   reasonCounts: Partial<Record<IntakeReason, number>>;
+  recordsClassified: number;
+  classifyCostUsd: number;
+  classifyStoppedBy?: string;
 }
 
 function startOfUtcDay(d: Date): Date {
@@ -180,6 +197,8 @@ export async function runIntake(deps: IntakeDeps, options: IntakeOptions): Promi
     notApplicable: 0,
     refreshed: await refreshStarFiltered(deps, options.refreshLimit, now),
     reasonCounts: {},
+    recordsClassified: 0,
+    classifyCostUsd: 0,
   };
 
   const rows = await deps.db
@@ -248,22 +267,33 @@ export async function runIntake(deps: IntakeDeps, options: IntakeOptions): Promi
     passing.push({ row, draft: { ...draft, sourceUrl: draft.sourceUrl }, vendor: decision.vendor });
   }
 
-  passing.sort((a, b) =>
-    compareIntakePriority(
-      {
-        vendor: a.vendor,
-        starVelocity7d: a.row.starVelocity7d ?? 0,
-        stars: a.draft.repo?.stars ?? 0,
-        sourceUrl: a.draft.sourceUrl,
-      },
-      {
-        vendor: b.vendor,
-        starVelocity7d: b.row.starVelocity7d ?? 0,
-        stars: b.draft.repo?.stars ?? 0,
-        sourceUrl: b.draft.sourceUrl,
-      },
-    ),
-  );
+  const relevanceOf = (c: Classification | null): Relevance =>
+    c === null || c.promptVersion !== PROMPT_VERSION
+      ? 'unknown'
+      : isNextjsRelevant(c)
+        ? 'relevant'
+        : 'irrelevant';
+  const rank = (p: (typeof passing)[number]) => ({
+    relevance: relevanceOf(p.row.classification),
+    vendor: p.vendor,
+    starVelocity7d: p.row.starVelocity7d ?? 0,
+    stars: p.draft.repo?.stars ?? 0,
+    sourceUrl: p.draft.sourceUrl,
+  });
+
+  // Classify the most promising unclassified records first, so relevance is known before ranking.
+  if (deps.classify) {
+    passing.sort((a, b) => compareIntakePriority(rank(a), rank(b)));
+    await classifyRecords(
+      deps,
+      deps.classify,
+      passing,
+      options.classifyDailyLimit ?? 0,
+      now,
+      report,
+    );
+  }
+  passing.sort((a, b) => compareIntakePriority(rank(a), rank(b)));
 
   let remaining = Math.max(0, options.dailyCap - (await acceptedToday(deps.db, now)));
   for (const { row, draft, vendor } of passing) {
@@ -295,6 +325,7 @@ export async function runIntake(deps: IntakeDeps, options: IntakeOptions): Promi
         return;
       }
       const id = await uniqueItemId(tx, itemIdBase(draft));
+      const c = row.classification;
       await insertCandidate(
         tx,
         {
@@ -304,7 +335,18 @@ export async function runIntake(deps: IntakeDeps, options: IntakeOptions): Promi
           sourceUrl: draft.sourceUrl,
           packageName: draft.packageName,
           publisher: draft.publisher,
-          kind: draft.kind,
+          kind: draft.kind ?? c?.kind ?? null,
+          // A record classified before ranking carries its result into the item.
+          ...(c
+            ? {
+                category: c.category,
+                stacks: c.stacks,
+                provenance: c.provenanceGuess,
+                classification: c,
+                classificationState: 'classified' as const,
+                outOfScope: outOfScopeFor(c, true),
+              }
+            : {}),
         },
         'system',
         `${INTAKE_REASON_PREFIX}: ${row.source}${vendor ? ' (vendor allowlist)' : ''}`,
@@ -320,4 +362,78 @@ export async function runIntake(deps: IntakeDeps, options: IntakeOptions): Promi
     });
   }
   return report;
+}
+
+async function classifiedToday(db: DbOrTx, now: Date): Promise<number> {
+  const [row] = await db
+    .select({ n: sql<number>`count(*)::int` })
+    .from(rawSourceRecords)
+    .where(gte(rawSourceRecords.classifiedAt, startOfUtcDay(now)));
+  return row?.n ?? 0;
+}
+
+/**
+ * Classifies filter-passing records in the given order, up to the daily limit and the budget.
+ * Results are stored on the record and reused when it becomes an item.
+ */
+async function classifyRecords(
+  deps: IntakeDeps,
+  classify: NonNullable<IntakeDeps['classify']>,
+  passing: Array<{
+    row: typeof rawSourceRecords.$inferSelect;
+    draft: CandidateDraft & { sourceUrl: string };
+  }>,
+  dailyLimit: number,
+  now: Date,
+  report: IntakeReport,
+): Promise<void> {
+  let remaining = Math.max(0, dailyLimit - (await classifiedToday(deps.db, now)));
+  let consecutiveFailures = 0;
+  for (const entry of passing) {
+    if (remaining === 0) break;
+    const { row, draft } = entry;
+    if (row.classification?.promptVersion === PROMPT_VERSION) continue;
+    try {
+      const outcome = await classifySource(
+        { ...classify, github: deps.github, logger: deps.logger },
+        {
+          name: draft.name,
+          publisher: draft.publisher,
+          sourceUrl: draft.sourceUrl,
+          kindHint: draft.kind,
+          description: draft.description,
+        },
+        `classify-record:${row.source}:${row.externalId}`,
+      );
+      consecutiveFailures = 0;
+      remaining--;
+      report.classifyCostUsd += outcome.costUsd;
+      if (outcome.ok) {
+        await deps.db
+          .update(rawSourceRecords)
+          .set({ classification: outcome.classification, classifiedAt: now })
+          .where(eq(rawSourceRecords.id, row.id));
+        entry.row = { ...row, classification: outcome.classification, classifiedAt: now };
+        report.recordsClassified++;
+      } else {
+        // Counted against the daily limit; ranked as unknown relevance.
+        await deps.db
+          .update(rawSourceRecords)
+          .set({ classifiedAt: now })
+          .where(eq(rawSourceRecords.id, row.id));
+      }
+    } catch (error) {
+      if (error instanceof BudgetExceededError) {
+        report.classifyStoppedBy = error.message;
+        deps.logger.warn({ limitedBy: error.limitedBy }, 'record classification stopped by budget');
+        return;
+      }
+      consecutiveFailures++;
+      deps.logger.error({ id: row.id, err: error }, 'record classification failed');
+      if (consecutiveFailures >= MAX_CONSECUTIVE_FAILURES) {
+        report.classifyStoppedBy = `${MAX_CONSECUTIVE_FAILURES} consecutive API failures`;
+        return;
+      }
+    }
+  }
 }

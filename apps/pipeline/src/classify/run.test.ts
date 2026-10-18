@@ -197,6 +197,25 @@ describe('classifyPending', () => {
   });
 });
 
+describe('scope marking', () => {
+  it('marks only intake-created items out of scope for Next.js', async () => {
+    await addItem('example-seeded', 'https://github.com/example-org/example-mcp');
+    await insertCandidate(
+      t.db,
+      { id: 'example-discovered', name: 'd', sourceUrl: 'https://github.com/example-org/d' },
+      'system',
+      'discovery intake: github_repo',
+    );
+    const notRelevant = JSON.stringify({ ...good, relevant: false });
+    const { deps } = setup([notRelevant, notRelevant]);
+    await classifyPending(deps);
+    const rows = Object.fromEntries(
+      (await t.db.select().from(catalogItems)).map((r) => [r.id, r.outOfScope]),
+    );
+    expect(rows).toEqual({ 'example-seeded': [], 'example-discovered': ['nextjs'] });
+  });
+});
+
 describe('classifier prompt', () => {
   it('is long enough to be cached (512+ tokens at ~4 chars/token)', () => {
     expect(SYSTEM_PROMPT.length / 4).toBeGreaterThan(512);

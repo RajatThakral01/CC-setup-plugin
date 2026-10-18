@@ -76,6 +76,11 @@ export const catalogItems = pgTable(
       .notNull()
       .default('pending'),
     classification: jsonb('classification').$type<Classification>(),
+    /** Stacks this item is out of scope for (hidden from that stack's triage queue by default). */
+    outOfScope: text('out_of_scope')
+      .array()
+      .notNull()
+      .default(sql`'{}'::text[]`),
     firstSeen: timestamp('first_seen', { withTimezone: true }).notNull().defaultNow(),
     lastChecked: timestamp('last_checked', { withTimezone: true }),
   },
@@ -115,6 +120,9 @@ export const rawSourceRecords = pgTable(
     stars: integer('stars'),
     starsCheckedAt: timestamp('stars_checked_at', { withTimezone: true }),
     starVelocity7d: real('star_velocity_7d'),
+    // Pre-ranking classification of filter-passing records (owner decision 2026-10-19).
+    classification: jsonb('classification').$type<Classification>(),
+    classifiedAt: timestamp('classified_at', { withTimezone: true }),
   },
   (t) => [
     uniqueIndex('raw_source_records_source_external_id_uq').on(t.source, t.externalId),

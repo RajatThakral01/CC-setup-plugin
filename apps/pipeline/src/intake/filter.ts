@@ -54,15 +54,24 @@ export function evaluateIntake(
   return { pass: reasons.length === 0, reasons, vendor };
 }
 
+export type Relevance = 'relevant' | 'unknown' | 'irrelevant';
+const RELEVANCE_RANK: Record<Relevance, number> = { relevant: 0, unknown: 1, irrelevant: 2 };
+
 export interface RankedDraft {
+  /** Next.js relevance from the pre-ranking classification; unclassified records are `unknown`. */
+  relevance: Relevance;
   vendor: boolean;
   starVelocity7d: number;
   stars: number;
   sourceUrl: string;
 }
 
-/** Daily-cap priority: vendor first, then star velocity, then stars; URL breaks ties. */
+/**
+ * Daily-cap priority (owner decision 2026-10-19): Next.js-relevant first, then vendor-allowlisted,
+ * then star velocity, then stars; URL breaks ties.
+ */
 export function compareIntakePriority(a: RankedDraft, b: RankedDraft): number {
+  if (a.relevance !== b.relevance) return RELEVANCE_RANK[a.relevance] - RELEVANCE_RANK[b.relevance];
   if (a.vendor !== b.vendor) return a.vendor ? -1 : 1;
   if (a.starVelocity7d !== b.starVelocity7d) return b.starVelocity7d - a.starVelocity7d;
   if (a.stars !== b.stars) return b.stars - a.stars;

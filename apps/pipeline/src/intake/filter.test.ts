@@ -119,13 +119,64 @@ describe('evaluateIntake', () => {
 });
 
 describe('compareIntakePriority', () => {
+  it('puts Next.js relevance above everything, unknown before irrelevant', () => {
+    const items = [
+      {
+        relevance: 'irrelevant' as const,
+        vendor: true,
+        starVelocity7d: 99,
+        stars: 999,
+        sourceUrl: 'x',
+      },
+      {
+        relevance: 'unknown' as const,
+        vendor: true,
+        starVelocity7d: 50,
+        stars: 500,
+        sourceUrl: 'u',
+      },
+      {
+        relevance: 'relevant' as const,
+        vendor: false,
+        starVelocity7d: 0,
+        stars: 10,
+        sourceUrl: 'r',
+      },
+    ];
+    expect([...items].sort(compareIntakePriority).map((i) => i.sourceUrl)).toEqual(['r', 'u', 'x']);
+  });
+
   it('orders vendor first, then star velocity, then stars, then URL', () => {
     const items = [
-      { vendor: false, starVelocity7d: 5, stars: 100, sourceUrl: 'c' },
-      { vendor: true, starVelocity7d: 0, stars: 1, sourceUrl: 'v' },
-      { vendor: false, starVelocity7d: 9, stars: 10, sourceUrl: 'b' },
-      { vendor: false, starVelocity7d: 5, stars: 200, sourceUrl: 'a' },
-      { vendor: false, starVelocity7d: 5, stars: 200, sourceUrl: 'aa' },
+      {
+        relevance: 'relevant' as const,
+        vendor: false,
+        starVelocity7d: 5,
+        stars: 100,
+        sourceUrl: 'c',
+      },
+      { relevance: 'relevant' as const, vendor: true, starVelocity7d: 0, stars: 1, sourceUrl: 'v' },
+      {
+        relevance: 'relevant' as const,
+        vendor: false,
+        starVelocity7d: 9,
+        stars: 10,
+        sourceUrl: 'b',
+      },
+      {
+        relevance: 'relevant' as const,
+        vendor: false,
+        starVelocity7d: 5,
+        stars: 200,
+        sourceUrl: 'a',
+      },
+      {
+        relevance: 'relevant' as const,
+        vendor: false,
+        starVelocity7d: 5,
+        stars: 200,
+        sourceUrl: 'aa',
+      },
     ];
     expect([...items].sort(compareIntakePriority).map((i) => i.sourceUrl)).toEqual([
       'v',

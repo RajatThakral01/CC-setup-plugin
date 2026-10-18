@@ -31,13 +31,21 @@ export async function runDiscoveryJob(
   );
   const report: DiscoveryJobReport = { sources, spend: await spendSummary(ctx.db) };
   if (options.intake !== false) {
-    report.intake = await runIntake(ctx, {
-      vendors: await readVendors(),
-      minStars: ctx.config.INTAKE_MIN_STARS,
-      dailyCap: ctx.config.INTAKE_DAILY_CAP,
-      refreshLimit: ctx.config.INTAKE_REFRESH_LIMIT,
-      now,
-    });
+    const classify =
+      options.classify !== false
+        ? { classify: { llm: ctx.llm(), npm: ctx.npm, config: ctx.config } }
+        : {};
+    report.intake = await runIntake(
+      { ...ctx, ...classify },
+      {
+        vendors: await readVendors(),
+        minStars: ctx.config.INTAKE_MIN_STARS,
+        dailyCap: ctx.config.INTAKE_DAILY_CAP,
+        refreshLimit: ctx.config.INTAKE_REFRESH_LIMIT,
+        classifyDailyLimit: ctx.config.CLASSIFY_DAILY_RECORD_LIMIT,
+        now,
+      },
+    );
   }
   if (options.classify !== false) {
     report.classify = await classifyPending({ ...ctx, llm: ctx.llm() });
@@ -62,6 +70,7 @@ export function formatDiscoveryReport(r: DiscoveryJobReport): string {
     const i = r.intake;
     lines.push(
       `Intake: evaluated=${i.evaluated} accepted=${i.accepted.length} linked=${i.linked} deferred=${i.deferred} filtered=${i.filtered} not_applicable=${i.notApplicable} refreshed=${i.refreshed}`,
+      `  pre-ranking classification: records=${i.recordsClassified} cost=USD ${i.classifyCostUsd.toFixed(4)}${i.classifyStoppedBy ? `  stopped: ${i.classifyStoppedBy}` : ''}`,
       `  filter reasons: ${
         Object.entries(i.reasonCounts)
           .map(([k, v]) => `${k}=${v}`)

@@ -21,6 +21,7 @@ This is draft v0.1 of the PRD for a Claude Code plugin that recommends, builds a
 | --- | --- | --- |
 | 0.1 | 19 Oct 2026 | First full draft |
 | 0.2 | 19 Oct 2026 | FR-D10: candidate intake filter and daily cap (owner decision) |
+| 0.3 | 19 Oct 2026 | FR-D10: classify before ranking; relevance-first priority; out-of-scope marking (owner decision) |
 
 ## 2. Executive summary
 
@@ -205,7 +206,7 @@ Requirements are grouped by module; P0 is required for MVP, P1 for the release a
 | FR-D7 | Pull discussion signals from Hacker News (Algolia API) and Reddit (r/ClaudeAI, r/ClaudeCode). Used as signals, never as the sole basis for a recommendation. | P1 |
 | FR-D8 | Deduplicate records into one entity per tool, keyed by canonical repo URL or package name. | P0 |
 | FR-D9 | Use an LLM to classify each new entity: category, what it does, supported stacks, official vs community. Store the classification with its model and prompt version. | P0 |
-| FR-D10 | Every raw source record is stored. An entity enters with status `candidate` only when it passes the intake filter: not a fork, not archived, has a licence and a description, and at least 10 stars (repos owned by orgs in `catalog/vendors.yaml` and MCP Registry verified publishers skip the star threshold); MCP Registry entries must also be the latest version and have a repo URL. At most 30 new candidates per day, prioritised by vendor allowlist, then star velocity, then stars. Stored raw records are re-checked daily and become candidates once they pass. Discovery never sets status `recommended`. | P0 |
+| FR-D10 | Every raw source record is stored. An entity enters with status `candidate` only when it passes the intake filter: not a fork, not archived, has a licence and a description, and at least 10 stars (repos owned by orgs in `catalog/vendors.yaml` and MCP Registry verified publishers skip the star threshold); MCP Registry entries must also be the latest version and have a repo URL. Up to 300 filter-passing records per day are classified first (within the classification budget), so relevance is known before ranking. At most 30 new candidates per day, prioritised by relevance to the MVP stack (Next.js), then vendor allowlist, then star velocity, then stars. Accepted items that are not relevant to a stack are marked out of scope for it (hidden from that stack's triage queue by default, never deleted or rejected). Stored raw records are re-checked daily and become candidates once they pass. Discovery never sets status `recommended`. | P0 |
 | FR-D11 | Generic blog and listicle crawling is out of scope for v1. | P0 |
 
 ### 9.2 Credibility gates

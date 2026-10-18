@@ -1,7 +1,8 @@
 import { afterAll, beforeAll, beforeEach, describe, expect, it } from 'vitest';
-import { createLogger } from '@cc-setup-agent/core';
+import { createLlmClient, createLogger, parseConfig, type MessagesApi } from '@cc-setup-agent/core';
 import {
   catalogItems,
+  createLedgerGuard,
   eq,
   insertCandidate,
   rawSourceRecords,
@@ -16,6 +17,7 @@ import { gqlRepo } from '../../../../test/fixtures/sources/graphql.js';
 import { vendorsFromFile } from '../catalog-config.js';
 import { storeRecords } from '../discovery/run.js';
 import { createGithubClient, repoFactsFromRest, type RepoFacts } from '../sources/github.js';
+import { createNpmClient } from '../sources/npm.js';
 import type { RegistryPayload } from '../sources/registry.js';
 import type { FetchedRecord } from '../sources/types.js';
 import { runIntake } from './run.js';
@@ -242,5 +244,108 @@ describe('runIntake', () => {
     const row = await stateOf(hit.externalId);
     expect(row).toMatchObject({ stars: 25, intakeState: 'accepted' });
     expect(row?.starVelocity7d).toBeCloseTo(147, 0);
+  });
+});
+
+describe('runIntake with pre-ranking classification', () => {
+  function classifyDeps(byName: Record<string, { relevant: boolean; stacks: string[] }>) {
+    const config = parseConfig({});
+    const calls: string[] = [];
+    const messages = {
+      create: async (body: { messages: Array<{ content: string }> }) => {
+        const name = /name: (.*)/.exec(body.messages[0]?.content ?? '')?.[1] ?? '';
+        calls.push(name);
+        const r = byName[name] ?? { relevant: true, stacks: ['nextjs'] };
+        const out = {
+          kind: 'mcp_server',
+          category: 'docs',
+          stacks: r.stacks,
+          summary: 's',
+          provenance_guess: 'community',
+          relevant: r.relevant,
+        };
+        return {
+          content: [{ type: 'text', text: JSON.stringify(out) }],
+          stop_reason: 'end_turn',
+          usage: { input_tokens: 100, output_tokens: 20 },
+        };
+      },
+    } as unknown as MessagesApi;
+    const llm = createLlmClient({ config, guard: createLedgerGuard(t.db, config), messages });
+    const { http } = fakeHttp({});
+    return {
+      calls,
+      classify: { llm, npm: createNpmClient(http, 'https://npm.example.test'), config },
+    };
+  }
+
+  it('ranks Next.js-relevant records first and carries classification and scope into items', async () => {
+    await storeRecords(
+      t.db,
+      [
+        searchHit('example-vendor/kotlin-tool', { stargazers_count: 5000 }),
+        searchHit('example-org/next-helper', { stargazers_count: 11 }),
+        searchHit('example-org/any-tool', { stargazers_count: 20 }),
+      ],
+      day1,
+    );
+    const { calls, classify } = classifyDeps({
+      'kotlin-tool': { relevant: true, stacks: [] },
+      'next-helper': { relevant: true, stacks: ['nextjs'] },
+      'any-tool': { relevant: true, stacks: ['any'] },
+    });
+    const report = await runIntake(
+      { ...deps(), classify },
+      { ...options(day1, 2), classifyDailyLimit: 300 },
+    );
+    expect(calls).toHaveLength(3);
+    expect(report.recordsClassified).toBe(3);
+    // Vendor + 5000 stars no longer beats relevance.
+    expect(report.accepted.map((a) => a.id)).toEqual([
+      'example-org-any-tool',
+      'example-org-next-helper',
+    ]);
+    const [item] = await t.db
+      .select()
+      .from(catalogItems)
+      .where(eq(catalogItems.id, 'example-org-next-helper'));
+    expect(item).toMatchObject({
+      classificationState: 'classified',
+      category: 'docs',
+      stacks: ['nextjs'],
+      outOfScope: [],
+    });
+
+    const next = await runIntake(
+      { ...deps(), classify },
+      { ...options(day2, 2), classifyDailyLimit: 300 },
+    );
+    expect(calls).toHaveLength(3); // already classified records are not classified again
+    expect(next.accepted.map((a) => a.id)).toEqual(['example-vendor-kotlin-tool']);
+    const [kotlin] = await t.db
+      .select()
+      .from(catalogItems)
+      .where(eq(catalogItems.id, 'example-vendor-kotlin-tool'));
+    expect(kotlin?.outOfScope).toEqual(['nextjs']);
+  });
+
+  it('respects the daily classification limit', async () => {
+    await storeRecords(
+      t.db,
+      [1, 2, 3, 4].map((i) => searchHit(`example-org/tool-${i}`)),
+      day1,
+    );
+    const { calls, classify } = classifyDeps({});
+    const report = await runIntake(
+      { ...deps(), classify },
+      { ...options(day1, 0), classifyDailyLimit: 2 },
+    );
+    expect(calls).toHaveLength(2);
+    expect(report.recordsClassified).toBe(2);
+    await runIntake(
+      { ...deps(), classify },
+      { ...options(new Date('2026-10-19T22:00:00Z'), 0), classifyDailyLimit: 2 },
+    );
+    expect(calls).toHaveLength(2);
   });
 });

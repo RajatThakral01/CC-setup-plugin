@@ -1,10 +1,28 @@
 import type { LlmClient, Logger } from '@cc-setup-agent/core';
-import { BudgetExceededError, asc, catalogItems, eq, type Db } from '@cc-setup-agent/db';
-import type { AppConfig, Classification } from '@cc-setup-agent/shared';
+import {
+  BudgetExceededError,
+  and,
+  asc,
+  catalogItems,
+  eq,
+  isNull,
+  ne,
+  or,
+  sql,
+  statusEvents,
+  type Db,
+  type DbOrTx,
+} from '@cc-setup-agent/db';
+import { isNextjsRelevant, type AppConfig, type Classification } from '@cc-setup-agent/shared';
 import type { GithubClient } from '../sources/github.js';
 import type { NpmClient } from '../sources/npm.js';
 import { parseSourceUrl } from '../sources/urls.js';
-import { classifyTool } from './classifier.js';
+import {
+  classifyTool,
+  PROMPT_VERSION,
+  type ClassifierInput,
+  type ClassifyOutcome,
+} from './classifier.js';
 
 export interface ClassifyDeps {
   db: Db;
@@ -26,9 +44,12 @@ export interface ClassifyReport {
 }
 
 /** Stop after this many consecutive API failures (e.g. a bad key) instead of hammering the API. */
-const MAX_CONSECUTIVE_FAILURES = 3;
+export const MAX_CONSECUTIVE_FAILURES = 3;
 
-async function fetchReadme(deps: ClassifyDeps, sourceUrl: string): Promise<string | null> {
+export async function fetchReadme(
+  deps: Pick<ClassifyDeps, 'github' | 'npm' | 'logger'>,
+  sourceUrl: string,
+): Promise<string | null> {
   const ref = parseSourceUrl(sourceUrl);
   try {
     if (ref?.type === 'github') {
@@ -43,25 +64,82 @@ async function fetchReadme(deps: ClassifyDeps, sourceUrl: string): Promise<strin
   return null;
 }
 
-/** Fills only fields that are still empty, so owner-approved seed hints always win. */
+/** README lookup plus one classification (with its single retry). */
+export async function classifySource(
+  deps: Pick<ClassifyDeps, 'llm' | 'github' | 'npm' | 'logger' | 'config'>,
+  input: Omit<ClassifierInput, 'readme'>,
+  ref: string,
+): Promise<ClassifyOutcome> {
+  const readme = await fetchReadme(deps, input.sourceUrl);
+  return classifyTool(
+    deps.llm,
+    { ...input, readme },
+    {
+      model: deps.config.MODEL_FAST,
+      maxTokens: deps.config.CLASSIFY_MAX_TOKENS,
+      readmeChars: deps.config.CLASSIFY_README_CHARS,
+      ref,
+    },
+  );
+}
+
+type ItemRow = typeof catalogItems.$inferSelect;
+
+/**
+ * Fields to update from a classification. Empty fields are always filled. On intake-created items
+ * a field that still holds the previous classification's value is replaced too; seeded items keep
+ * their owner-approved hints untouched.
+ */
 export function applyClassification(
-  item: Pick<typeof catalogItems.$inferSelect, 'kind' | 'category' | 'stacks' | 'provenance'>,
+  item: Pick<ItemRow, 'kind' | 'category' | 'stacks' | 'provenance' | 'classification'>,
   c: Classification,
+  intakeCreated: boolean,
 ): Partial<typeof catalogItems.$inferInsert> {
+  const prev = intakeCreated ? item.classification : null;
+  const replaceable = <T>(current: T, previous: T | undefined) =>
+    current === null || (prev !== null && JSON.stringify(current) === JSON.stringify(previous));
   return {
-    kind: item.kind ?? c.kind,
-    category: item.category ?? c.category,
-    stacks: item.stacks.length > 0 ? item.stacks : c.stacks,
-    provenance: item.provenance ?? c.provenanceGuess,
+    kind: replaceable(item.kind, prev?.kind) ? c.kind : item.kind,
+    category: replaceable(item.category, prev?.category) ? c.category : item.category,
+    stacks:
+      item.stacks.length === 0 || replaceable(item.stacks, prev?.stacks) ? c.stacks : item.stacks,
+    provenance: replaceable(item.provenance, prev?.provenanceGuess)
+      ? c.provenanceGuess
+      : item.provenance,
     classification: c,
     classificationState: 'classified',
   };
 }
 
-/** Classifies every `pending` item (FR-D9), oldest first, until done or out of budget. */
+/**
+ * Out-of-scope stacks for an item. Only intake-created items are scoped automatically; items the
+ * owner seeded were approved for Next.js and are never hidden by the classifier.
+ */
+export function outOfScopeFor(c: Classification, intakeCreated: boolean): string[] {
+  return intakeCreated && !isNextjsRelevant(c) ? ['nextjs'] : [];
+}
+
+export async function isIntakeCreated(db: DbOrTx, itemId: string): Promise<boolean> {
+  const [row] = await db
+    .select({ n: sql<number>`count(*)::int` })
+    .from(statusEvents)
+    .where(
+      and(
+        eq(statusEvents.itemId, itemId),
+        isNull(statusEvents.fromStatus),
+        sql`${statusEvents.reason} like 'discovery intake%'`,
+      ),
+    );
+  return (row?.n ?? 0) > 0;
+}
+
+/**
+ * Classifies `pending` items (FR-D9), oldest first, until done or out of budget. With `stale`,
+ * also re-classifies items classified by an older prompt version.
+ */
 export async function classifyPending(
   deps: ClassifyDeps,
-  options: { limit?: number } = {},
+  options: { limit?: number; stale?: boolean } = {},
 ): Promise<ClassifyReport> {
   const report: ClassifyReport = {
     classified: 0,
@@ -70,47 +148,58 @@ export async function classifyPending(
     failed: 0,
     costUsd: 0,
   };
-  const pending = await deps.db
+  const pendingFilter = eq(catalogItems.classificationState, 'pending');
+  const items = await deps.db
     .select()
     .from(catalogItems)
-    .where(eq(catalogItems.classificationState, 'pending'))
+    .where(
+      options.stale
+        ? or(
+            pendingFilter,
+            and(
+              eq(catalogItems.classificationState, 'classified'),
+              ne(sql`${catalogItems.classification}->>'promptVersion'`, PROMPT_VERSION),
+            ),
+          )
+        : pendingFilter,
+    )
     .orderBy(asc(catalogItems.firstSeen), asc(catalogItems.id))
     .limit(options.limit ?? 10_000);
 
   let consecutiveFailures = 0;
-  for (const [index, item] of pending.entries()) {
-    const readme = await fetchReadme(deps, item.sourceUrl);
+  for (const [index, item] of items.entries()) {
     try {
-      const outcome = await classifyTool(
-        deps.llm,
+      const outcome = await classifySource(
+        deps,
         {
           name: item.name,
           publisher: item.publisher,
           sourceUrl: item.sourceUrl,
           kindHint: item.kind,
           description: item.description,
-          readme,
         },
-        {
-          model: deps.config.MODEL_FAST,
-          maxTokens: deps.config.CLASSIFY_MAX_TOKENS,
-          readmeChars: deps.config.CLASSIFY_README_CHARS,
-          ref: `classify:${item.id}`,
-        },
+        `classify:${item.id}`,
       );
       consecutiveFailures = 0;
       report.costUsd += outcome.costUsd;
       if (outcome.ok) {
+        const intake = await isIntakeCreated(deps.db, item.id);
         await deps.db
           .update(catalogItems)
-          .set(applyClassification(item, outcome.classification))
+          .set({
+            ...applyClassification(item, outcome.classification, intake),
+            outOfScope: outOfScopeFor(outcome.classification, intake),
+          })
           .where(eq(catalogItems.id, item.id));
         report.classified++;
       } else {
-        await deps.db
-          .update(catalogItems)
-          .set({ classificationState: 'needs_manual_classification' })
-          .where(eq(catalogItems.id, item.id));
+        // A failed re-classification keeps the previous result.
+        if (item.classificationState === 'pending') {
+          await deps.db
+            .update(catalogItems)
+            .set({ classificationState: 'needs_manual_classification' })
+            .where(eq(catalogItems.id, item.id));
+        }
         report.needsManual++;
         deps.logger.warn(
           { id: item.id, error: outcome.error },
@@ -119,7 +208,7 @@ export async function classifyPending(
       }
     } catch (error) {
       if (error instanceof BudgetExceededError) {
-        report.queuedByBudget = pending.length - index;
+        report.queuedByBudget = items.length - index;
         report.stoppedBy = error.message;
         deps.logger.warn(
           { queued: report.queuedByBudget, limitedBy: error.limitedBy },
@@ -131,7 +220,7 @@ export async function classifyPending(
       consecutiveFailures++;
       deps.logger.error(
         { id: item.id, err: error },
-        'classification call failed; item stays pending',
+        'classification call failed; item stays as it was',
       );
       if (consecutiveFailures >= MAX_CONSECUTIVE_FAILURES) {
         report.stoppedBy = `${MAX_CONSECUTIVE_FAILURES} consecutive API failures`;

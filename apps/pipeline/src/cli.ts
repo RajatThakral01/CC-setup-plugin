@@ -25,7 +25,7 @@ Commands:
   discover [--source <name>]...        Run discovery sources, then intake and classification
            [--no-intake] [--no-classify]  Sources: ${SOURCE_NAMES.join(', ')}
   intake                               Re-run the intake filter over stored raw records
-  classify [--limit <n>]               Classify pending items with MODEL_FAST (costs money)
+  classify [--limit <n>] [--stale]             Classify pending items; --stale also redoes older prompt versions (costs money)
   worker                               Start the scheduler (daily discovery at DISCOVERY_CRON, UTC)
   spend                                Show Anthropic spend this ISO week and in total`;
 
@@ -80,21 +80,31 @@ async function main(argv: string[]): Promise<number> {
     }
     case 'intake':
       return withContext(async (ctx) => {
-        const report = await runIntake(ctx, {
-          vendors: await readVendors(),
-          minStars: ctx.config.INTAKE_MIN_STARS,
-          dailyCap: ctx.config.INTAKE_DAILY_CAP,
-          refreshLimit: ctx.config.INTAKE_REFRESH_LIMIT,
-        });
+        const report = await runIntake(
+          { ...ctx, classify: { llm: ctx.llm(), npm: ctx.npm, config: ctx.config } },
+          {
+            vendors: await readVendors(),
+            minStars: ctx.config.INTAKE_MIN_STARS,
+            dailyCap: ctx.config.INTAKE_DAILY_CAP,
+            refreshLimit: ctx.config.INTAKE_REFRESH_LIMIT,
+            classifyDailyLimit: ctx.config.CLASSIFY_DAILY_RECORD_LIMIT,
+          },
+        );
         out(JSON.stringify({ ...report, accepted: report.accepted.map((a) => a.id) }, null, 2));
         return 0;
       });
     case 'classify': {
-      const { values } = parseArgs({ args: rest, options: { limit: { type: 'string' } } });
+      const { values } = parseArgs({
+        args: rest,
+        options: { limit: { type: 'string' }, stale: { type: 'boolean' } },
+      });
       return withContext(async (ctx) => {
         const report = await classifyPending(
           { ...ctx, llm: ctx.llm() },
-          values.limit ? { limit: Number(values.limit) } : {},
+          {
+            ...(values.limit ? { limit: Number(values.limit) } : {}),
+            stale: values.stale === true,
+          },
         );
         out(JSON.stringify(report, null, 2));
         return report.failed > 0 ? 1 : 0;

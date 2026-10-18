@@ -8,7 +8,7 @@ import {
   type Classification,
 } from '@cc-setup-agent/shared';
 
-export const PROMPT_VERSION = 'classify-v1';
+export const PROMPT_VERSION = 'classify-v2';
 
 /** Kinds the classifier may assign; model settings and Claude Code features are never discovered. */
 const classifiableKinds = z.enum(['mcp_server', 'skill', 'plugin', 'subagent', 'hook_recipe']);
@@ -41,7 +41,7 @@ category — the single job it mainly helps with, or null if none fits:
 ${CATEGORIES.map((c) => `- ${c}`).join('\n')}
 Guidance: docs = up-to-date library or framework documentation and coding guidance; browser_testing = driving a browser, end-to-end tests, Playwright, accessibility audits; unit_testing = unit or component test runners, TDD workflows; database = databases, ORMs, data APIs; deploy = hosting, infrastructure, deployment platforms; ui_components = component libraries, design systems, design-to-code; code_review = review, linting, static analysis, security review, code quality and general engineering workflows; git_github = git, GitHub, issue trackers, pull requests; observability = errors, logs, metrics, product analytics; search = web search, crawling, code search, semantic retrieval; auth = authentication and user management; payments = payments and billing; email = sending or receiving email; cms = headless content management.
 
-stacks — tags for the project stacks it is useful in, from: ${STACK_TAGS.join(', ')}. Use nextjs when it is useful for Next.js websites (Next.js-specific, React, TypeScript web apps, Vercel, typical Next.js databases, auth, payments). Use any when it is stack-independent (for example git, web search, general code review). Use an empty list if it only fits other stacks.
+stacks — tags for the project stacks it is useful in, from: ${STACK_TAGS.join(', ')}. Use nextjs when it is useful for Next.js websites (Next.js-specific, React, TypeScript/JavaScript web apps, Vercel, typical Next.js databases, auth, payments). Use react for React-specific tools, node for Node.js back-end tools, python for Python tools. Use any only when it is genuinely stack-independent and useful in a TypeScript web project too (for example git, issue trackers, web search, general code review). Tools tied to another language or platform (for example a Kotlin, Go or C# language server, Laravel, iOS, a game engine) get only their own tag or an empty list, never any.
 
 summary — one or two plain sentences, at most 300 characters, saying what it does for a developer. No marketing language.
 

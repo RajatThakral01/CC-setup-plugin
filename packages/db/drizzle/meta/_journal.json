@@ -15,6 +15,13 @@
       "when": 1792356603878,
       "tag": "0001_discovery_intake",
       "breakpoints": true
+    },
+    {
+      "idx": 2,
+      "version": "7",
+      "when": 1792359794516,
+      "tag": "0002_scope_and_record_classification",
+      "breakpoints": true
     }
   ]
 }

@@ -181,6 +181,8 @@ export const configSchema = z
     INTAKE_REFRESH_LIMIT: z.coerce.number().int().nonnegative().default(200),
     CLASSIFY_README_CHARS: z.coerce.number().int().positive().default(4000),
     CLASSIFY_MAX_TOKENS: z.coerce.number().int().positive().default(600),
+    /** Filter-passing raw records classified per UTC day before ranking (owner decision). */
+    CLASSIFY_DAILY_RECORD_LIMIT: z.coerce.number().int().nonnegative().default(300),
   })
   .superRefine((c, ctx) => {
     for (const key of ['MODEL_FAST', 'MODEL_STRONG'] as const) {

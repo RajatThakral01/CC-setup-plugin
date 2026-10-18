@@ -149,6 +149,15 @@ Defaults in `packages/shared/src/config.ts`; override with `MODEL_PRICING_JSON`.
 - **`@cc-setup-agent/db` re-exports drizzle operators:** pg-boss pulled in a peer that created a second `drizzle-orm` copy, which broke types when the pipeline imported drizzle directly.
 - **Contract fixtures** (`test/fixtures/sources/`) keep the exact structure of real responses recorded on 2026-10-19, with names replaced by `example-*` per the fixture rule.
 
+## After Milestone 3 (owner decisions, 2026-10-19)
+
+- **Git remote:** `origin` = https://github.com/RajatThakral01/CC-setup-plugin, owner's existing credentials (no tokens in the URL). Push after every milestone commit; never force-push or rewrite pushed history. CLAUDE.md updated.
+- **Classification separated from the triage cap:** up to `CLASSIFY_DAILY_RECORD_LIMIT` (300) filter-passing raw records are classified per UTC day, within the classification budget, before ranking. Order of classification = the current ranking (so the most promising go first). Results are stored on the raw record (`classification`, `classified_at`) and copied into the item when it is accepted, so nothing is classified twice. A failed classification still counts against the daily limit.
+- **Daily-cap priority:** Next.js-relevant first, then vendor-allowlisted, then star velocity, then stars. "Next.js-relevant" = classification `relevant: true` and stacks include `nextjs`, `react` or `any` (`isNextjsRelevant` in `packages/shared`). Records not yet classified with the current prompt rank between relevant and irrelevant ones.
+- **Out of scope:** new `catalog_items.out_of_scope` (stack list). Intake-created items that aren't Next.js-relevant get `['nextjs']`; never deleted or rejected; the triage queue (M5) hides them by default with a filter to show them. Owner-seeded items are never auto-scoped (the owner approved them for Next.js).
+- **Prompt `classify-v2`:** `any` only for genuinely stack-independent tools also useful in a TypeScript web project; tools tied to another language or platform get only their own tag or none. All 147 items re-classified (`classify --stale`, USD 0.031): 10 intake items marked out of scope (language servers, math plugins, iMessage, etc.). On re-classification, seeded items only get empty fields filled; intake items also get fields that still hold the previous classification's value replaced.
+- **Registry namespaces:** owner agrees with the stricter reading; `registry_namespaces` stays empty. `catalog/vendors.yaml` approved as is.
+
 ## Dependencies
 
 One line each: why it was added.
