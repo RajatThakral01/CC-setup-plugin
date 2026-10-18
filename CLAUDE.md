@@ -18,7 +18,7 @@ The owner sets a **milestone range** for each session (for example "Milestones 0
 1. Read `docs/PROGRESS.md`; start at the current milestone and stay inside the agreed range.
 2. Before the first milestone of the range: scan every milestone in it and ask the owner, in **one single batch**, every question and input you can foresee (tokens, seed lists, decisions). Proposals that need approval (for example seed URLs found by search) go in that batch too.
 3. Build each milestone in order, with tests alongside the code.
-4. Finish each milestone properly before starting the next: all its acceptance criteria met, `pnpm typecheck && pnpm lint && pnpm test` green, `docs/PROGRESS.md` updated, one commit `M<n>: <summary>`.
+4. Finish each milestone properly before starting the next: all its acceptance criteria met, `pnpm typecheck && pnpm lint && pnpm test` green, `docs/PROGRESS.md` updated, one commit `M<n>: <summary>`, then `git push origin main` and check the GitHub Actions run (fix it if red before the next milestone).
 5. At the end of the range: report what was built per milestone, test results, decisions made, deviations from the plan, and what the next milestone needs from the owner. Ask whether to continue, then stop.
 
 Only stop mid-range to ask the owner when:
@@ -68,4 +68,5 @@ Every other choice: decide, record it in `docs/DECISIONS.md`, keep going. Never 
 
 - Add dependencies without a one-line reason in `docs/DECISIONS.md`.
 - Build Phase 2 features (see plan section 12.2).
-- Push to remote, change CI secrets, or run real evals unless the owner asks.
+- Force push, rewrite pushed history, or put tokens in the remote URL. Pushing is allowed only as the last step of a milestone (remote: `origin` = github.com/RajatThakral01/CC-setup-plugin, using the owner's existing git credentials).
+- Change CI secrets or run real evals unless the owner asks.
