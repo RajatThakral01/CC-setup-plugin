@@ -1,0 +1,13 @@
+{
+  "files": [],
+  "references": [
+    { "path": "packages/shared" },
+    { "path": "packages/core" },
+    { "path": "packages/db" },
+    { "path": "apps/pipeline" },
+    { "path": "apps/triage" },
+    { "path": "apps/evals" },
+    { "path": "apps/plugin" },
+    { "path": "tsconfig.tooling.json" }
+  ]
+}

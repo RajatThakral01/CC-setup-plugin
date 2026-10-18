@@ -1,0 +1,10 @@
+{
+  "extends": "../../tsconfig.base.json",
+  "compilerOptions": {
+    "rootDir": "server",
+    "outDir": "dist"
+  },
+  "include": ["server"],
+  "exclude": ["server/**/*.test.ts"],
+  "references": [{ "path": "../../packages/shared" }]
+}

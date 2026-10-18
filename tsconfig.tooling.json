@@ -1,0 +1,27 @@
+{
+  "extends": "./tsconfig.base.json",
+  "compilerOptions": {
+    "rootDir": ".",
+    "outDir": "dist/tooling",
+    "noEmit": false
+  },
+  "include": [
+    "scripts",
+    "test",
+    "packages/*/src/**/*.test.ts",
+    "apps/*/src/**/*.test.ts",
+    "apps/plugin/server/**/*.test.ts",
+    "vitest.config.ts",
+    "eslint.config.js"
+  ],
+  "exclude": ["test/fixtures/projects"],
+  "references": [
+    { "path": "packages/shared" },
+    { "path": "packages/core" },
+    { "path": "packages/db" },
+    { "path": "apps/pipeline" },
+    { "path": "apps/triage" },
+    { "path": "apps/evals" },
+    { "path": "apps/plugin" }
+  ]
+}

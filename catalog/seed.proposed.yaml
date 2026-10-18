@@ -1,0 +1,961 @@
+# PROPOSED seed list — NOT approved. Generated 2026-10-19 from live GitHub/npm checks.
+# Nothing here is imported until the owner approves. Approved entries move to catalog/seed.yaml.
+# PROPOSED seed list - Next.js website projects. Generated 2026-10-19. NOT approved; owner review required.
+# All entries verified live 2026-10-19: not archived, not a fork, pushed/published within 180 days (>= 2026-04-22).
+# Subpath URLs (/tree/...) carry the parent repo's stars/pushed_at/license. license null = none or NOASSERTION in GitHub API.
+# GitHub metadata came from the GitHub REST API (search + repos endpoints); verified_via github_api.
+
+# ---- docs ----
+- source_url: https://github.com/anthropics/claude-plugins-official/tree/main/external_plugins/context7
+  note: "Context7 packaged as a plugin in Anthropic's official marketplace (claude-plugins-official)"
+  proposed_category: docs
+  proposed_kind: plugin
+  stars: 42549
+  pushed_at: 2026-10-18
+  license: Apache-2.0
+  verified_via: github_api
+- source_url: https://github.com/auth0/agent-skills
+  note: "Auth0 agent skills; official Auth0 (auth; category fit approximate)"
+  proposed_category: docs
+  proposed_kind: skill
+  stars: 53
+  pushed_at: 2026-10-16
+  license: Apache-2.0
+  verified_via: github_api
+- source_url: https://github.com/clerk/skills
+  note: "Clerk auth agent skills; official Clerk (auth; category fit approximate)"
+  proposed_category: docs
+  proposed_kind: skill
+  stars: 89
+  pushed_at: 2026-10-16
+  license: null
+  verified_via: github_api
+- source_url: https://github.com/GoogleChrome/modern-web-guidance
+  note: "Modern web platform best-practice guidance for coding agents; official Google Chrome (in claude-plugins-official)"
+  proposed_category: docs
+  proposed_kind: plugin
+  stars: 2497
+  pushed_at: 2026-10-12
+  license: Apache-2.0
+  verified_via: github_api
+- source_url: https://github.com/idosal/git-mcp
+  note: "GitMCP: remote MCP serving docs/code of any GitHub repo to curb hallucinations; community"
+  proposed_category: docs
+  proposed_kind: mcp_server
+  stars: 8471
+  pushed_at: 2026-05-08
+  license: Apache-2.0
+  verified_via: github_api
+- source_url: https://github.com/resend/resend-mcp
+  note: "Resend MCP server for sending email (renamed from resend/mcp-send-email); official Resend"
+  proposed_category: docs
+  proposed_kind: mcp_server
+  stars: 576
+  pushed_at: 2026-10-16
+  license: MIT
+  verified_via: github_api
+- source_url: https://github.com/resend/resend-skills
+  note: "Resend email skills (sending/receiving); official Resend (email; category fit approximate)"
+  proposed_category: docs
+  proposed_kind: skill
+  stars: 202
+  pushed_at: 2026-10-17
+  license: MIT
+  verified_via: github_api
+- source_url: https://github.com/stripe/ai
+  note: "Stripe agent toolkit + Stripe MCP setup (npm @stripe/mcp); official Stripe (payments; category fit approximate)"
+  proposed_category: docs
+  proposed_kind: mcp_server
+  stars: 1959
+  pushed_at: 2026-10-18
+  license: MIT
+  verified_via: github_api
+- source_url: https://github.com/upstash/context7
+  note: "Context7 MCP: up-to-date library docs for agents; official Upstash"
+  proposed_category: docs
+  proposed_kind: mcp_server
+  stars: 63252
+  pushed_at: 2026-10-17
+  license: MIT
+  verified_via: github_api
+- source_url: https://github.com/vercel-labs/agent-skills
+  note: "Vercel's official agent skills (React/Next.js best practices, web design guidelines); official Vercel Labs"
+  proposed_category: docs
+  proposed_kind: skill
+  stars: 32597
+  pushed_at: 2026-10-14
+  license: null
+  verified_via: github_api
+- source_url: https://github.com/vercel-labs/next-skills
+  note: "Next.js agent skills; official Vercel Labs"
+  proposed_category: docs
+  proposed_kind: skill
+  stars: 983
+  pushed_at: 2026-09-16
+  license: null
+  verified_via: github_api
+- source_url: https://github.com/vercel/next-devtools-mcp
+  note: "Next.js DevTools MCP (npm next-devtools-mcp): Next.js docs, runtime errors, upgrade helpers; official Vercel"
+  proposed_category: docs
+  proposed_kind: mcp_server
+  stars: 830
+  pushed_at: 2026-09-15
+  license: null
+  verified_via: github_api
+- source_url: https://github.com/workos/skills
+  note: "WorkOS/AuthKit skills; official WorkOS (auth; category fit approximate)"
+  proposed_category: docs
+  proposed_kind: skill
+  stars: 45
+  pushed_at: 2026-10-09
+  license: MIT
+  verified_via: github_api
+# ---- browser_testing ----
+- source_url: https://github.com/anthropics/claude-plugins-official/tree/main/external_plugins/playwright
+  note: "Playwright MCP packaged as a plugin in Anthropic's official marketplace"
+  proposed_category: browser_testing
+  proposed_kind: plugin
+  stars: 42549
+  pushed_at: 2026-10-18
+  license: Apache-2.0
+  verified_via: github_api
+- source_url: https://github.com/anthropics/skills/tree/main/skills/webapp-testing
+  note: "webapp-testing skill (Playwright-based local web app testing); official Anthropic"
+  proposed_category: browser_testing
+  proposed_kind: skill
+  stars: 181962
+  pushed_at: 2026-10-09
+  license: null
+  verified_via: github_api
+- source_url: https://github.com/browser-use/plugins
+  note: "Browser Use plugins for coding agents (browser-harness); official Browser Use"
+  proposed_category: browser_testing
+  proposed_kind: plugin
+  stars: 25
+  pushed_at: 2026-10-17
+  license: null
+  verified_via: github_api
+- source_url: https://github.com/browserbase/skills
+  note: "Browserbase agent skills for cloud browser access; official Browserbase"
+  proposed_category: browser_testing
+  proposed_kind: skill
+  stars: 3738
+  pushed_at: 2026-09-29
+  license: null
+  verified_via: github_api
+- source_url: https://github.com/ChromeDevTools/chrome-devtools-mcp
+  note: "Chrome DevTools MCP: perf traces, network, console, screenshots; official Google Chrome DevTools"
+  proposed_category: browser_testing
+  proposed_kind: mcp_server
+  stars: 53797
+  pushed_at: 2026-10-18
+  license: Apache-2.0
+  verified_via: github_api
+- source_url: https://github.com/currents-dev/playwright-best-practices-skill
+  note: "Playwright best-practices skill; vendor-published by Currents.dev"
+  proposed_category: browser_testing
+  proposed_kind: skill
+  stars: 402
+  pushed_at: 2026-07-21
+  license: MIT
+  verified_via: github_api
+- source_url: https://github.com/lackeyjb/playwright-skill
+  note: "General-purpose Playwright automation skill for coding agents; community"
+  proposed_category: browser_testing
+  proposed_kind: skill
+  stars: 3219
+  pushed_at: 2026-10-01
+  license: MIT
+  verified_via: github_api
+- source_url: https://github.com/microsoft/playwright-cli
+  note: "Playwright CLI for agents (record/generate code, inspect selectors) with agent skill; official Microsoft"
+  proposed_category: browser_testing
+  proposed_kind: skill
+  stars: 14337
+  pushed_at: 2026-10-14
+  license: Apache-2.0
+  verified_via: github_api
+- source_url: https://github.com/microsoft/playwright-mcp
+  note: "Playwright MCP (npm @playwright/mcp): browser automation via accessibility snapshots; official Microsoft"
+  proposed_category: browser_testing
+  proposed_kind: mcp_server
+  stars: 38334
+  pushed_at: 2026-10-16
+  license: Apache-2.0
+  verified_via: github_api
+- source_url: https://github.com/testdino-hq/playwright-skill
+  note: "Playwright best-practices skill; vendor-published by TestDino"
+  proposed_category: browser_testing
+  proposed_kind: skill
+  stars: 396
+  pushed_at: 2026-10-12
+  license: MIT
+  verified_via: github_api
+- source_url: https://github.com/vercel-labs/agent-browser
+  note: "agent-browser: browser automation CLI for AI agents (ships a skill); official Vercel Labs"
+  proposed_category: browser_testing
+  proposed_kind: skill
+  stars: 44192
+  pushed_at: 2026-10-18
+  license: Apache-2.0
+  verified_via: github_api
+- source_url: https://www.npmjs.com/package/@accesslint/mcp
+  note: "AccessLint MCP: WCAG accessibility audit tools for coding agents; community (repo AccessLint/accesslint, 13 stars)"
+  proposed_category: browser_testing
+  proposed_kind: mcp_server
+  stars: null
+  pushed_at: 2026-08-25
+  license: MIT
+  verified_via: npm_registry
+- source_url: https://www.npmjs.com/package/@currents/mcp
+  note: "Currents MCP: Playwright test-run results/flakiness for agents; official Currents.dev"
+  proposed_category: browser_testing
+  proposed_kind: mcp_server
+  stars: null
+  pushed_at: 2026-10-14
+  license: Apache-2.0
+  verified_via: npm_registry
+# ---- unit_testing ----
+- source_url: https://github.com/antfu/skills/tree/main/skills/vitest
+  note: "Vitest skill from Anthony Fu's curated skills collection; community (Vitest/Vite maintainer)"
+  proposed_category: unit_testing
+  proposed_kind: skill
+  stars: 5983
+  pushed_at: 2026-10-09
+  license: MIT
+  verified_via: github_api
+- source_url: https://github.com/djankies/vitest-mcp
+  note: "Vitest MCP (npm @djankies/vitest-mcp): structured test runs, logs, coverage; community"
+  proposed_category: unit_testing
+  proposed_kind: mcp_server
+  stars: 18
+  pushed_at: 2026-10-16
+  license: MIT
+  verified_via: github_api
+- source_url: https://github.com/mattpocock/skills/tree/main/skills/engineering/tdd
+  note: "TDD skill from Matt Pocock's skills collection; community"
+  proposed_category: unit_testing
+  proposed_kind: skill
+  stars: 296046
+  pushed_at: 2026-10-13
+  license: MIT
+  verified_via: github_api
+- source_url: https://github.com/nizos/tdd-guard
+  note: "TDD Guard: hooks enforcing test-first development in Claude Code (Vitest/Jest reporters); community"
+  proposed_category: unit_testing
+  proposed_kind: hook_recipe
+  stars: 2362
+  pushed_at: 2026-10-12
+  license: MIT
+  verified_via: github_api
+- source_url: https://github.com/obra/superpowers
+  note: "Superpowers skills framework (TDD, debugging, planning workflows); community, in claude-plugins-official"
+  proposed_category: unit_testing
+  proposed_kind: skill
+  stars: 301586
+  pushed_at: 2026-10-10
+  license: MIT
+  verified_via: github_api
+# ---- database ----
+- source_url: https://github.com/contentful/contentful-mcp-server
+  note: "Contentful Management API MCP server; official Contentful (headless CMS)"
+  proposed_category: database
+  proposed_kind: mcp_server
+  stars: 61
+  pushed_at: 2026-10-18
+  license: MIT
+  verified_via: github_api
+- source_url: https://github.com/convex/convex-backend-skill
+  note: "Convex backend skill (repo moved from get-convex/convex-backend-skill); official Convex"
+  proposed_category: database
+  proposed_kind: skill
+  stars: 6
+  pushed_at: 2026-10-16
+  license: null
+  verified_via: github_api
+- source_url: https://github.com/crystaldba/postgres-mcp
+  note: "Postgres MCP Pro: Postgres access + index/perf analysis; community"
+  proposed_category: database
+  proposed_kind: mcp_server
+  stars: 3403
+  pushed_at: 2026-08-17
+  license: MIT
+  verified_via: github_api
+- source_url: https://github.com/googleapis/mcp-toolbox
+  note: "MCP Toolbox for Databases (renamed from googleapis/genai-toolbox); official Google"
+  proposed_category: database
+  proposed_kind: mcp_server
+  stars: 16678
+  pushed_at: 2026-10-17
+  license: Apache-2.0
+  verified_via: github_api
+- source_url: https://github.com/mongodb-js/mongodb-mcp-server
+  note: "MongoDB MCP server (databases + Atlas); official MongoDB"
+  proposed_category: database
+  proposed_kind: mcp_server
+  stars: 1144
+  pushed_at: 2026-10-18
+  license: Apache-2.0
+  verified_via: github_api
+- source_url: https://github.com/mongodb/agent-skills
+  note: "MongoDB agent skills; official MongoDB"
+  proposed_category: database
+  proposed_kind: skill
+  stars: 190
+  pushed_at: 2026-10-16
+  license: Apache-2.0
+  verified_via: github_api
+- source_url: https://github.com/neondatabase/agent-skills
+  note: "Neon serverless Postgres agent skills; official Neon"
+  proposed_category: database
+  proposed_kind: skill
+  stars: 101
+  pushed_at: 2026-10-16
+  license: Apache-2.0
+  verified_via: github_api
+- source_url: https://github.com/neondatabase/mcp-server-neon
+  note: "Neon MCP server (now primarily remote; npm package deprecated in favour of remote server); official Neon"
+  proposed_category: database
+  proposed_kind: mcp_server
+  stars: 654
+  pushed_at: 2026-10-16
+  license: MIT
+  verified_via: github_api
+- source_url: https://github.com/planetscale/claude-plugin
+  note: "PlanetScale plugin for Claude Code; official PlanetScale"
+  proposed_category: database
+  proposed_kind: plugin
+  stars: 5
+  pushed_at: 2026-08-31
+  license: Apache-2.0
+  verified_via: github_api
+- source_url: https://github.com/prisma/claude-plugin
+  note: "Prisma plugin for Claude Code (in claude-plugins-official); official Prisma"
+  proposed_category: database
+  proposed_kind: plugin
+  stars: 0
+  pushed_at: 2026-06-10
+  license: null
+  verified_via: github_api
+- source_url: https://github.com/prisma/skills
+  note: "Prisma ORM agent skills; official Prisma"
+  proposed_category: database
+  proposed_kind: skill
+  stars: 71
+  pushed_at: 2026-10-16
+  license: MIT
+  verified_via: github_api
+- source_url: https://github.com/redis/agent-skills
+  note: "Redis agent skills; official Redis"
+  proposed_category: database
+  proposed_kind: skill
+  stars: 167
+  pushed_at: 2026-09-08
+  license: MIT
+  verified_via: github_api
+- source_url: https://github.com/redis/mcp-redis
+  note: "Redis MCP server; official Redis"
+  proposed_category: database
+  proposed_kind: mcp_server
+  stars: 636
+  pushed_at: 2026-10-13
+  license: MIT
+  verified_via: github_api
+- source_url: https://github.com/sanity-io/agent-toolkit
+  note: "Sanity CMS agent toolkit (resources for agents building with Sanity); official Sanity (headless CMS)"
+  proposed_category: database
+  proposed_kind: skill
+  stars: 191
+  pushed_at: 2026-10-14
+  license: MIT
+  verified_via: github_api
+- source_url: https://github.com/supabase-community/supabase-plugin
+  note: "Supabase plugin for AI coding assistants; official Supabase community org, in claude-plugins-official"
+  proposed_category: database
+  proposed_kind: plugin
+  stars: 36
+  pushed_at: 2026-10-16
+  license: null
+  verified_via: github_api
+- source_url: https://github.com/supabase/agent-skills
+  note: "Supabase agent skills; official Supabase"
+  proposed_category: database
+  proposed_kind: skill
+  stars: 2875
+  pushed_at: 2026-10-02
+  license: MIT
+  verified_via: github_api
+- source_url: https://github.com/supabase/mcp
+  note: "Supabase MCP server (moved from supabase-community/supabase-mcp); official Supabase"
+  proposed_category: database
+  proposed_kind: mcp_server
+  stars: 2959
+  pushed_at: 2026-10-17
+  license: Apache-2.0
+  verified_via: github_api
+- source_url: https://github.com/upstash/mcp-server
+  note: "Upstash MCP server; official Upstash"
+  proposed_category: database
+  proposed_kind: mcp_server
+  stars: 60
+  pushed_at: 2026-09-01
+  license: MIT
+  verified_via: github_api
+# ---- deploy ----
+- source_url: https://github.com/awslabs/agent-plugins
+  note: "AWS agent plugins incl. aws-amplify and deploy-on-aws; official AWS Labs"
+  proposed_category: deploy
+  proposed_kind: plugin
+  stars: 924
+  pushed_at: 2026-10-15
+  license: Apache-2.0
+  verified_via: github_api
+- source_url: https://github.com/cloudflare/mcp-server-cloudflare
+  note: "Cloudflare MCP servers; official Cloudflare"
+  proposed_category: deploy
+  proposed_kind: mcp_server
+  stars: 4392
+  pushed_at: 2026-10-09
+  license: Apache-2.0
+  verified_via: github_api
+- source_url: https://github.com/cloudflare/skills
+  note: "Cloudflare skills for building on Workers/Pages; official Cloudflare"
+  proposed_category: deploy
+  proposed_kind: skill
+  stars: 3098
+  pushed_at: 2026-10-15
+  license: Apache-2.0
+  verified_via: github_api
+- source_url: https://github.com/netlify/context-and-tools
+  note: "Netlify skills/context for agents (netlify-skills plugin); official Netlify"
+  proposed_category: deploy
+  proposed_kind: skill
+  stars: 41
+  pushed_at: 2026-10-15
+  license: MIT
+  verified_via: github_api
+- source_url: https://github.com/netlify/netlify-mcp
+  note: "Netlify MCP server (npm @netlify/mcp); official Netlify"
+  proposed_category: deploy
+  proposed_kind: mcp_server
+  stars: 69
+  pushed_at: 2026-10-17
+  license: null
+  verified_via: github_api
+- source_url: https://github.com/railwayapp/railway-skills
+  note: "Railway agent skills (Railway MCP repo is archived); official Railway"
+  proposed_category: deploy
+  proposed_kind: skill
+  stars: 326
+  pushed_at: 2026-10-15
+  license: MIT
+  verified_via: github_api
+- source_url: https://github.com/render-oss/render-mcp-server
+  note: "Render MCP server; official Render"
+  proposed_category: deploy
+  proposed_kind: mcp_server
+  stars: 180
+  pushed_at: 2026-10-17
+  license: Apache-2.0
+  verified_via: github_api
+- source_url: https://github.com/render-oss/render-plugin-claude-code
+  note: "Render plugin for Claude Code (skills, agent, commands); official Render"
+  proposed_category: deploy
+  proposed_kind: plugin
+  stars: 1
+  pushed_at: 2026-10-13
+  license: MIT
+  verified_via: github_api
+- source_url: https://github.com/vercel/vercel-plugin
+  note: "Comprehensive Vercel ecosystem plugin for Claude Code (skills, knowledge graph); official Vercel"
+  proposed_category: deploy
+  proposed_kind: plugin
+  stars: 309
+  pushed_at: 2026-10-18
+  license: null
+  verified_via: github_api
+# ---- ui_components ----
+- source_url: https://github.com/21st-dev/magic-mcp
+  note: "21st.dev Magic MCP: React/Tailwind component search & generation; official 21st.dev"
+  proposed_category: ui_components
+  proposed_kind: mcp_server
+  stars: 6094
+  pushed_at: 2026-09-09
+  license: ISC
+  verified_via: github_api
+- source_url: https://github.com/anthropics/claude-plugins-official/tree/main/plugins/frontend-design
+  note: "frontend-design plugin (distinctive production UI); official Anthropic"
+  proposed_category: ui_components
+  proposed_kind: plugin
+  stars: 42549
+  pushed_at: 2026-10-18
+  license: Apache-2.0
+  verified_via: github_api
+- source_url: https://github.com/figma/mcp-server-guide
+  note: "Figma MCP server guide + Claude Code plugin; official Figma"
+  proposed_category: ui_components
+  proposed_kind: plugin
+  stars: 2086
+  pushed_at: 2026-10-15
+  license: null
+  verified_via: github_api
+- source_url: https://github.com/GLips/Figma-Context-MCP
+  note: "Framelink Figma MCP: Figma layout data for coding agents; community"
+  proposed_category: ui_components
+  proposed_kind: mcp_server
+  stars: 16005
+  pushed_at: 2026-10-16
+  license: MIT
+  verified_via: github_api
+- source_url: https://github.com/heroui-inc/heroui-mcp
+  note: "HeroUI MCP servers (npm @heroui/react-mcp); official HeroUI"
+  proposed_category: ui_components
+  proposed_kind: mcp_server
+  stars: 61
+  pushed_at: 2026-09-26
+  license: MIT
+  verified_via: github_api
+- source_url: https://github.com/Jpisnice/shadcn-ui-mcp-server
+  note: "shadcn/ui component context MCP server; community"
+  proposed_category: ui_components
+  proposed_kind: mcp_server
+  stars: 3061
+  pushed_at: 2026-10-03
+  license: MIT
+  verified_via: github_api
+- source_url: https://github.com/shadcn-ui/ui
+  note: "shadcn/ui; the shadcn MCP server ships in the shadcn CLI (npm shadcn, `shadcn mcp`); official shadcn"
+  proposed_category: ui_components
+  proposed_kind: mcp_server
+  stars: 125868
+  pushed_at: 2026-10-18
+  license: MIT
+  verified_via: github_api
+- source_url: https://github.com/superdesigndev/superdesign-skill
+  note: "Superdesign UI design skill; vendor-published by Superdesign"
+  proposed_category: ui_components
+  proposed_kind: skill
+  stars: 840
+  pushed_at: 2026-08-21
+  license: MIT
+  verified_via: github_api
+- source_url: https://www.npmjs.com/package/@mui/mcp
+  note: "MUI MCP server (docs for Material UI); official MUI"
+  proposed_category: ui_components
+  proposed_kind: mcp_server
+  stars: null
+  pushed_at: 2026-10-06
+  license: MIT
+  verified_via: npm_registry
+- source_url: https://www.npmjs.com/package/@storybook/addon-mcp
+  note: "Storybook MCP addon (write/test stories); official Storybook (old storybookjs/mcp repo archived, moved into monorepo)"
+  proposed_category: ui_components
+  proposed_kind: mcp_server
+  stars: null
+  pushed_at: 2026-10-12
+  license: MIT
+  verified_via: npm_registry
+# ---- code_review ----
+- source_url: https://github.com/affaan-m/ECC
+  note: "ECC (renamed from everything-claude-code): skills, hooks, agents harness; community"
+  proposed_category: code_review
+  proposed_kind: plugin
+  stars: 283170
+  pushed_at: 2026-10-15
+  license: MIT
+  verified_via: github_api
+- source_url: https://github.com/anthropics/claude-plugins-official/tree/main/plugins/code-review
+  note: "code-review plugin: multi-agent PR review with confidence scoring; official Anthropic"
+  proposed_category: code_review
+  proposed_kind: plugin
+  stars: 42549
+  pushed_at: 2026-10-18
+  license: Apache-2.0
+  verified_via: github_api
+- source_url: https://github.com/anthropics/claude-plugins-official/tree/main/plugins/feature-dev
+  note: "feature-dev plugin: explore/architect/review agents for feature work; official Anthropic"
+  proposed_category: code_review
+  proposed_kind: plugin
+  stars: 42549
+  pushed_at: 2026-10-18
+  license: Apache-2.0
+  verified_via: github_api
+- source_url: https://github.com/anthropics/claude-plugins-official/tree/main/plugins/hookify
+  note: "hookify plugin: create guard hooks from conversation patterns; official Anthropic"
+  proposed_category: code_review
+  proposed_kind: hook_recipe
+  stars: 42549
+  pushed_at: 2026-10-18
+  license: Apache-2.0
+  verified_via: github_api
+- source_url: https://github.com/anthropics/claude-plugins-official/tree/main/plugins/pr-review-toolkit
+  note: "pr-review-toolkit: specialised review agents (tests, types, errors, comments); official Anthropic"
+  proposed_category: code_review
+  proposed_kind: plugin
+  stars: 42549
+  pushed_at: 2026-10-18
+  license: Apache-2.0
+  verified_via: github_api
+- source_url: https://github.com/anthropics/claude-plugins-official/tree/main/plugins/security-guidance
+  note: "security-guidance plugin: hook warning on risky edits; official Anthropic"
+  proposed_category: code_review
+  proposed_kind: hook_recipe
+  stars: 42549
+  pushed_at: 2026-10-18
+  license: Apache-2.0
+  verified_via: github_api
+- source_url: https://github.com/anthropics/claude-plugins-official/tree/main/plugins/typescript-lsp
+  note: "typescript-lsp plugin (typescript-language-server code intelligence); official Anthropic"
+  proposed_category: code_review
+  proposed_kind: plugin
+  stars: 42549
+  pushed_at: 2026-10-18
+  license: Apache-2.0
+  verified_via: github_api
+- source_url: https://github.com/coderabbitai/skills
+  note: "CodeRabbit review skills (in claude-plugins-official); official CodeRabbit"
+  proposed_category: code_review
+  proposed_kind: skill
+  stars: 193
+  pushed_at: 2026-10-15
+  license: MIT
+  verified_via: github_api
+- source_url: https://github.com/davila7/claude-code-templates
+  note: "CLI installing agents, commands, hooks, MCPs (aitmpl.com); community"
+  proposed_category: code_review
+  proposed_kind: subagent
+  stars: 32735
+  pushed_at: 2026-10-18
+  license: MIT
+  verified_via: github_api
+- source_url: https://github.com/diet103/claude-code-infrastructure-showcase
+  note: "Showcase of hooks for skill auto-activation, agents, dev-docs; community"
+  proposed_category: code_review
+  proposed_kind: hook_recipe
+  stars: 10035
+  pushed_at: 2026-07-13
+  license: MIT
+  verified_via: github_api
+- source_url: https://github.com/greptileai/claude-plugin
+  note: "Greptile code review plugin; official Greptile (repo has ~0 stars but is in claude-plugins-official)"
+  proposed_category: code_review
+  proposed_kind: plugin
+  stars: 0
+  pushed_at: 2026-10-18
+  license: MIT
+  verified_via: github_api
+- source_url: https://github.com/kenryu42/cc-safety-net
+  note: "PreToolUse guard blocking destructive git/file commands (renamed from claude-code-safety-net); community"
+  proposed_category: code_review
+  proposed_kind: hook_recipe
+  stars: 1666
+  pushed_at: 2026-10-18
+  license: MIT
+  verified_via: github_api
+- source_url: https://github.com/mattpocock/skills
+  note: "Matt Pocock's engineering skills (TypeScript-focused); community"
+  proposed_category: code_review
+  proposed_kind: skill
+  stars: 296046
+  pushed_at: 2026-10-13
+  license: MIT
+  verified_via: github_api
+- source_url: https://github.com/qodo-ai/qodo-skills
+  note: "Qodo code review/standards skills; official Qodo"
+  proposed_category: code_review
+  proposed_kind: skill
+  stars: 57
+  pushed_at: 2026-10-14
+  license: MIT
+  verified_via: github_api
+- source_url: https://github.com/SonarSource/sonarqube-agent-plugins
+  note: "SonarQube plugin for AI agents; official SonarSource"
+  proposed_category: code_review
+  proposed_kind: plugin
+  stars: 112
+  pushed_at: 2026-10-18
+  license: null
+  verified_via: github_api
+- source_url: https://github.com/SonarSource/sonarqube-mcp-server
+  note: "SonarQube MCP server (quality & security); official SonarSource"
+  proposed_category: code_review
+  proposed_kind: mcp_server
+  stars: 665
+  pushed_at: 2026-10-18
+  license: null
+  verified_via: github_api
+- source_url: https://github.com/trailofbits/claude-code-config
+  note: "Trail of Bits opinionated Claude Code settings/hooks/workflows; vendor-published"
+  proposed_category: code_review
+  proposed_kind: hook_recipe
+  stars: 2133
+  pushed_at: 2026-08-24
+  license: null
+  verified_via: github_api
+- source_url: https://github.com/trailofbits/skills
+  note: "Trail of Bits security review skills; vendor-published (security firm)"
+  proposed_category: code_review
+  proposed_kind: skill
+  stars: 7632
+  pushed_at: 2026-10-15
+  license: CC-BY-SA-4.0
+  verified_via: github_api
+- source_url: https://github.com/VoltAgent/awesome-claude-code-subagents
+  note: "100+ specialised Claude Code subagents across dev domains; community"
+  proposed_category: code_review
+  proposed_kind: subagent
+  stars: 25833
+  pushed_at: 2026-10-11
+  license: MIT
+  verified_via: github_api
+- source_url: https://github.com/wshobson/agents
+  note: "Large multi-harness subagent/plugin marketplace; community"
+  proposed_category: code_review
+  proposed_kind: subagent
+  stars: 41008
+  pushed_at: 2026-10-17
+  license: MIT
+  verified_via: github_api
+- source_url: https://www.npmjs.com/package/@eslint/mcp
+  note: "ESLint MCP server; official ESLint"
+  proposed_category: code_review
+  proposed_kind: mcp_server
+  stars: null
+  pushed_at: 2026-10-16
+  license: Apache-2.0
+  verified_via: npm_registry
+- source_url: https://www.npmjs.com/package/@knip/mcp
+  note: "Knip MCP: unused files/exports/deps in TS projects; official Knip"
+  proposed_category: code_review
+  proposed_kind: mcp_server
+  stars: null
+  pushed_at: 2026-09-16
+  license: ISC
+  verified_via: npm_registry
+# ---- git_github ----
+- source_url: https://github.com/anthropics/claude-code-action
+  note: "Claude Code GitHub Action (PR/issue automation, @claude); official Anthropic (kind approximate: GitHub Action)"
+  proposed_category: git_github
+  proposed_kind: plugin
+  stars: 9565
+  pushed_at: 2026-10-16
+  license: MIT
+  verified_via: github_api
+- source_url: https://github.com/anthropics/claude-plugins-official/tree/main/external_plugins/github
+  note: "GitHub MCP packaged as a plugin in Anthropic's official marketplace"
+  proposed_category: git_github
+  proposed_kind: plugin
+  stars: 42549
+  pushed_at: 2026-10-18
+  license: Apache-2.0
+  verified_via: github_api
+- source_url: https://github.com/anthropics/claude-plugins-official/tree/main/external_plugins/linear
+  note: "Linear (remote MCP) plugin in Anthropic's official marketplace (issue tracking)"
+  proposed_category: git_github
+  proposed_kind: plugin
+  stars: 42549
+  pushed_at: 2026-10-18
+  license: Apache-2.0
+  verified_via: github_api
+- source_url: https://github.com/anthropics/claude-plugins-official/tree/main/plugins/commit-commands
+  note: "commit-commands plugin: /commit, /commit-push-pr; official Anthropic"
+  proposed_category: git_github
+  proposed_kind: plugin
+  stars: 42549
+  pushed_at: 2026-10-18
+  license: Apache-2.0
+  verified_via: github_api
+- source_url: https://github.com/atlassian/atlassian-mcp-server
+  note: "Atlassian remote MCP (Jira/Confluence); official Atlassian (issue tracking)"
+  proposed_category: git_github
+  proposed_kind: mcp_server
+  stars: 1104
+  pushed_at: 2026-10-10
+  license: Apache-2.0
+  verified_via: github_api
+- source_url: https://github.com/cyanheads/git-mcp-server
+  note: "Git MCP server (clone/commit/diff/worktrees); community"
+  proposed_category: git_github
+  proposed_kind: mcp_server
+  stars: 242
+  pushed_at: 2026-09-26
+  license: Apache-2.0
+  verified_via: github_api
+- source_url: https://github.com/github/github-mcp-server
+  note: "GitHub's official MCP server"
+  proposed_category: git_github
+  proposed_kind: mcp_server
+  stars: 33730
+  pushed_at: 2026-10-15
+  license: MIT
+  verified_via: github_api
+- source_url: https://github.com/modelcontextprotocol/servers/tree/main/src/git
+  note: "Reference Git MCP server (mcp-server-git); official MCP project"
+  proposed_category: git_github
+  proposed_kind: mcp_server
+  stars: 91352
+  pushed_at: 2026-10-13
+  license: null
+  verified_via: github_api
+# ---- observability ----
+- source_url: https://github.com/datadog-labs/claude-code-plugin
+  note: "Datadog Claude Code plugin; official Datadog"
+  proposed_category: observability
+  proposed_kind: plugin
+  stars: 17
+  pushed_at: 2026-09-01
+  license: Apache-2.0
+  verified_via: github_api
+- source_url: https://github.com/datadog-labs/mcp-server
+  note: "Official Datadog MCP server"
+  proposed_category: observability
+  proposed_kind: mcp_server
+  stars: 45
+  pushed_at: 2026-10-16
+  license: MIT
+  verified_via: github_api
+- source_url: https://github.com/getsentry/plugin-claude
+  note: "Official Sentry plugin for Claude Code"
+  proposed_category: observability
+  proposed_kind: plugin
+  stars: 4
+  pushed_at: 2026-10-15
+  license: MIT
+  verified_via: github_api
+- source_url: https://github.com/getsentry/sentry-for-ai
+  note: "Sentry skills for AI assistants (renamed from sentry-for-claude); official Sentry"
+  proposed_category: observability
+  proposed_kind: skill
+  stars: 271
+  pushed_at: 2026-10-16
+  license: MIT
+  verified_via: github_api
+- source_url: https://github.com/getsentry/toolkit
+  note: "Sentry MCP + CLI (repo renamed from getsentry/sentry-mcp; npm @sentry/mcp-server); official Sentry"
+  proposed_category: observability
+  proposed_kind: mcp_server
+  stars: 932
+  pushed_at: 2026-10-17
+  license: null
+  verified_via: github_api
+- source_url: https://github.com/grafana/mcp-grafana
+  note: "Grafana MCP server; official Grafana"
+  proposed_category: observability
+  proposed_kind: mcp_server
+  stars: 3571
+  pushed_at: 2026-10-18
+  license: Apache-2.0
+  verified_via: github_api
+- source_url: https://github.com/honeycombio/agent-skill
+  note: "Honeycomb agent skills; official Honeycomb"
+  proposed_category: observability
+  proposed_kind: skill
+  stars: 27
+  pushed_at: 2026-10-09
+  license: MIT
+  verified_via: github_api
+- source_url: https://github.com/PostHog/ai-plugin
+  note: "Official PostHog plugin (analytics, flags, errors) for Claude Code"
+  proposed_category: observability
+  proposed_kind: plugin
+  stars: 91
+  pushed_at: 2026-10-18
+  license: null
+  verified_via: github_api
+- source_url: https://github.com/PostHog/posthog/tree/master/services/mcp
+  note: "PostHog MCP server, now in the PostHog monorepo (old PostHog/mcp repo archived); official PostHog"
+  proposed_category: observability
+  proposed_kind: mcp_server
+  stars: 40335
+  pushed_at: 2026-10-18
+  license: null
+  verified_via: github_api
+# ---- search ----
+- source_url: https://github.com/brave/brave-search-mcp-server
+  note: "Brave Search MCP server; official Brave"
+  proposed_category: search
+  proposed_kind: mcp_server
+  stars: 1508
+  pushed_at: 2026-10-17
+  license: MIT
+  verified_via: github_api
+- source_url: https://github.com/exa-labs/exa-mcp-server
+  note: "Exa web search/crawl MCP; official Exa"
+  proposed_category: search
+  proposed_kind: mcp_server
+  stars: 5138
+  pushed_at: 2026-10-07
+  license: MIT
+  verified_via: github_api
+- source_url: https://github.com/firecrawl/firecrawl-claude-plugin
+  note: "Firecrawl plugin for Claude Code; official Firecrawl"
+  proposed_category: search
+  proposed_kind: plugin
+  stars: 244
+  pushed_at: 2026-10-14
+  license: MIT
+  verified_via: github_api
+- source_url: https://github.com/firecrawl/firecrawl-mcp-server
+  note: "Firecrawl scrape/search MCP; official Firecrawl"
+  proposed_category: search
+  proposed_kind: mcp_server
+  stars: 7630
+  pushed_at: 2026-10-18
+  license: MIT
+  verified_via: github_api
+- source_url: https://github.com/jina-ai/MCP
+  note: "Jina AI remote MCP server; official Jina AI"
+  proposed_category: search
+  proposed_kind: mcp_server
+  stars: 883
+  pushed_at: 2026-10-15
+  license: Apache-2.0
+  verified_via: github_api
+- source_url: https://github.com/meilisearch/meilisearch-mcp
+  note: "Meilisearch MCP server; official Meilisearch"
+  proposed_category: search
+  proposed_kind: mcp_server
+  stars: 196
+  pushed_at: 2026-09-08
+  license: MIT
+  verified_via: github_api
+- source_url: https://github.com/modelcontextprotocol/servers/tree/main/src/fetch
+  note: "Reference Fetch MCP server (web page -> markdown); official MCP project"
+  proposed_category: search
+  proposed_kind: mcp_server
+  stars: 91352
+  pushed_at: 2026-10-13
+  license: null
+  verified_via: github_api
+- source_url: https://github.com/oraios/serena
+  note: "Serena: semantic code retrieval/editing MCP (LSP-based); community"
+  proposed_category: search
+  proposed_kind: mcp_server
+  stars: 30366
+  pushed_at: 2026-10-15
+  license: null
+  verified_via: github_api
+- source_url: https://github.com/perplexityai/modelcontextprotocol
+  note: "Perplexity API MCP server (moved from ppl-ai org); official Perplexity"
+  proposed_category: search
+  proposed_kind: mcp_server
+  stars: 2579
+  pushed_at: 2026-10-17
+  license: MIT
+  verified_via: github_api
+- source_url: https://github.com/tavily-ai/skills
+  note: "Tavily skills (in claude-plugins-official); official Tavily"
+  proposed_category: search
+  proposed_kind: skill
+  stars: 488
+  pushed_at: 2026-09-04
+  license: MIT
+  verified_via: github_api
+- source_url: https://github.com/tavily-ai/tavily-mcp
+  note: "Tavily search/extract/crawl MCP; official Tavily"
+  proposed_category: search
+  proposed_kind: mcp_server
+  stars: 2437
+  pushed_at: 2026-10-15
+  license: MIT
+  verified_via: github_api

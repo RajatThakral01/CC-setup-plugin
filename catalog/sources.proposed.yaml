@@ -1,0 +1,86 @@
+# PROPOSED discovery sources for a daily polling job. Generated 2026-10-19. NOT approved; owner review required.
+# Every URL returned HTTP 200 on 2026-10-19. "format" says what to parse.
+
+# ---- Official Anthropic plugin / skill marketplaces ----
+- url: https://raw.githubusercontent.com/anthropics/claude-plugins-official/main/.claude-plugin/marketplace.json
+  note: "Anthropic-managed official plugin directory (claude-plugins-official, ~315 plugins incl. vendor MCP plugins); highest-signal source"
+  publisher: anthropic
+  format: claude_marketplace_json
+- url: https://raw.githubusercontent.com/anthropics/claude-plugins-community/main/.claude-plugin/marketplace.json
+  note: "Anthropic's community plugin marketplace, read-only mirror (~2,283 plugins); high volume, needs gating"
+  publisher: anthropic
+  format: claude_marketplace_json
+- url: https://raw.githubusercontent.com/anthropics/claude-code/main/.claude-plugin/marketplace.json
+  note: "Marketplace bundled in the anthropics/claude-code repo (13 demo/first-party plugins, e.g. code-review, pr-review-toolkit)"
+  publisher: anthropic
+  format: claude_marketplace_json
+- url: https://raw.githubusercontent.com/anthropics/skills/main/.claude-plugin/marketplace.json
+  note: "anthropic-agent-skills marketplace in anthropics/skills (official Agent Skills)"
+  publisher: anthropic
+  format: claude_marketplace_json
+
+# ---- Official MCP server registries / vendor indexes ----
+- url: https://registry.modelcontextprotocol.io/v0.1/servers
+  note: "Official MCP Registry API (modelcontextprotocol/registry); paginated JSON of server.json entries incl. remotes/packages"
+  publisher: modelcontextprotocol
+  format: mcp_registry_api
+- url: https://raw.githubusercontent.com/modelcontextprotocol/servers/main/README.md
+  note: "Reference servers plus official third-party integrations list in modelcontextprotocol/servers"
+  publisher: modelcontextprotocol
+  format: markdown_list
+- url: https://raw.githubusercontent.com/microsoft/mcp/main/README.md
+  note: "Microsoft's catalog of official Microsoft MCP server implementations"
+  publisher: microsoft
+  format: markdown_list
+- url: https://raw.githubusercontent.com/docker/mcp-registry/main/README.md
+  note: "Docker MCP Catalog registry repo (docker/mcp-registry, active); server definitions live under the repo's servers/ tree"
+  publisher: docker
+  format: markdown_list
+
+# ---- Vendor-published Claude Code marketplaces (single vendor, relevant to Next.js work) ----
+- url: https://raw.githubusercontent.com/vercel/vercel-plugin/main/.claude-plugin/marketplace.json
+  note: "Vercel's own plugin marketplace (vercel-plugin)"
+  publisher: vercel
+  format: claude_marketplace_json
+- url: https://raw.githubusercontent.com/getsentry/toolkit/main/.claude-plugin/marketplace.json
+  note: "Sentry MCP plugin marketplace (repo renamed from getsentry/sentry-mcp)"
+  publisher: sentry
+  format: claude_marketplace_json
+- url: https://raw.githubusercontent.com/grafana/ai-marketplace/main/.claude-plugin/marketplace.json
+  note: "Grafana's plugin marketplace (grafana-mcp, grafana-cloud-mcp, assistant)"
+  publisher: grafana
+  format: claude_marketplace_json
+
+# ---- Large community marketplaces (lower trust; gate before recommending) ----
+- url: https://raw.githubusercontent.com/wshobson/agents/main/.claude-plugin/marketplace.json
+  note: "wshobson/agents community marketplace of subagents/plugins (~41k stars)"
+  publisher: community
+  format: claude_marketplace_json
+- url: https://raw.githubusercontent.com/obra/superpowers/main/.claude-plugin/marketplace.json
+  note: "Superpowers community skills marketplace (~300k stars)"
+  publisher: community
+  format: claude_marketplace_json
+- url: https://raw.githubusercontent.com/davepoon/buildwithclaude/main/.claude-plugin/marketplace.json
+  note: "buildwithclaude community hub marketplace (skills, agents, commands, hooks)"
+  publisher: community
+  format: claude_marketplace_json
+
+# ---- Curated awesome-lists (discovery leads only; every hit needs verification) ----
+- url: https://raw.githubusercontent.com/hesreallyhim/awesome-claude-code/main/README.md
+  note: "awesome-claude-code curated list (skills, hooks, commands, plugins)"
+  publisher: community
+  format: markdown_list
+- url: https://raw.githubusercontent.com/punkpeye/awesome-mcp-servers/main/README.md
+  note: "awesome-mcp-servers, the largest curated MCP server list"
+  publisher: community
+  format: markdown_list
+- url: https://raw.githubusercontent.com/ComposioHQ/awesome-claude-skills/master/README.md
+  note: "awesome-claude-skills curated list (default branch is master)"
+  publisher: community
+  format: markdown_list
+
+# ---- Package registry search (for npm-distributed MCP servers) ----
+- url: https://registry.npmjs.org/-/v1/search?text=keywords:mcp
+  note: "npm registry search API filtered by the 'mcp' keyword; add size/from paging; noisy, use with gates"
+  publisher: npm
+  format: npm_search_api
