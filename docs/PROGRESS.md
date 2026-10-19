@@ -2,8 +2,8 @@
 
 ## Current state
 
-- **Session range:** Milestones 4–5 (owner-approved 2026-10-19).
-- **Current milestone:** 6 — Signed catalog snapshot (not started; session range 4–5 complete, awaiting owner).
+- **Session range:** Milestones 6–8 (owner-approved 2026-10-19; M8 stops before the owner-run acceptance).
+- **Current milestone:** 7 — Plugin MCP server.
 - **Total Anthropic API spend to date:** USD 0.1359 (Haiku classification only). Weekly cap USD 20, total cap USD 40.
 - **Remote:** https://github.com/RajatThakral01/CC-setup-plugin — pushed after every milestone; CI green.
 
@@ -17,8 +17,8 @@
 | 3   | Discovery jobs              | Done   | M3     |
 | 4   | Credibility gates 0 to 3    | Done   | M4     |
 | 5   | Triage UI                   | Done   | M5     |
-| 6   | Signed catalog snapshot     |        |        |
-| 7   | Plugin MCP server           |        |        |
+| 6   | Signed catalog snapshot     | Done   | M6     |
+| 7   | Plugin MCP server           | Next   |        |
 | 8   | Plugin packaging            |        |        |
 | 9   | Eval harness                |        |        |
 | 10  | End-to-end acceptance       |        |        |
@@ -132,6 +132,22 @@ Acceptance:
 - [x] A flagged security item shows the flag prominently and requires a written override (route test: red panel with findings; 409 without the note; the note is recorded in the audit reason).
 
 Tests: route tests for auth (sign-in, forged/tampered sessions, weak token, CSRF), queue and scope filtering, escaping of hostile data and non-https links, transitions, validation, override, scope toggle, changes page; priority score. Live smoke test: server starts with the `.env` token, sign-in page 200, unauthenticated page → sign-in redirect, unauthenticated POST 401.
+
+## Milestone 6 — Signed catalog snapshot (done)
+
+Built:
+
+- `pnpm run pipeline snapshot`: exports publishable items, validates with the shared schema, signs with Ed25519, writes `catalog-<version>.json` + `.sig` + `.sha256` + `latest.json` through `SnapshotStore` (local store; GitHub-release store kept behind the interface, refusing), records the snapshot in `snapshots`.
+- Owner's public key committed; publishing refuses a mismatched private key.
+
+Acceptance:
+
+- [x] A tampered byte makes signature verification fail (test).
+- [x] Snapshot contains no `candidate` or `rejected` items (test with all statuses).
+
+Tests: sign/verify, tamper, wrong key, status filtering, skipped incomplete items, version numbering, local store files and pointer, key mismatch, missing key file, deferred GitHub store.
+
+Not run live: the owner's `.env` `SNAPSHOT_SIGNING_KEY_PATH` still holds the placeholder path, and no items are approved yet (the snapshot would be empty).
 
 ## Open questions
 

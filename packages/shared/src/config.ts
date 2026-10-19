@@ -144,7 +144,9 @@ export const configSchema = z
     TOTAL_BUDGET_USD: usd.default(40),
     TOTAL_BUDGET_WARN_USD: usd.default(30),
     SNAPSHOT_SIGNING_KEY_PATH: optionalSecret,
-    SNAPSHOT_STORE: z.enum(['github-release', 'local']).default('github-release'),
+    SNAPSHOT_STORE: z.enum(['github-release', 'local']).default('local'),
+    /** Where the local snapshot store writes files (relative paths resolve from the working directory). */
+    SNAPSHOT_LOCAL_DIR: z.string().min(1).default('.snapshots'),
     SNAPSHOT_REPO: z.string().optional(),
     TRIAGE_HOST: z.string().default('127.0.0.1'),
     TRIAGE_PORT: z.coerce.number().int().min(1).max(65535).default(4400),

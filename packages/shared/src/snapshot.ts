@@ -29,31 +29,56 @@ export const snapshotVersionSchema = z
   .string()
   .regex(/^\d{4}\.\d{2}\.\d{2}-[1-9]\d*$/, 'snapshot version must be YYYY.MM.DD-N');
 
-export const snapshotItemSchema = z.object({
-  id: itemIdSchema,
-  name: z.string().min(1),
-  kind: kindSchema,
-  category: categorySchema,
-  stacks: z.array(z.string()).min(1),
-  sourceUrl: z.url(),
-  publisher: z.string().nullable(),
-  provenance: provenanceSchema,
-  status: snapshotStatusSchema,
-  version: z.string().min(1),
-  install: installSchema,
-  capabilities: z.array(capabilitySchema),
-  contextOverheadTokens: z.number().int().nonnegative().nullable(),
-  supersedes: itemIdSchema.nullable(),
-  supersededBy: itemIdSchema.nullable(),
-  scorecard: z.object({
-    confidence: confidenceSchema,
-    gates: z.partialRecord(gateIdSchema, gateResultSchema),
-    securityFlags: z.number().int().nonnegative(),
-    reviewedAt: z.iso.datetime().nullable(),
-  }),
-  evalSummary: evalSummarySchema.nullable(),
-  lastChecked: z.iso.datetime(),
-});
+const RECOMMENDABLE = new Set(['recommended', 'recommended_provisional']);
+
+export const snapshotItemSchema = z
+  .object({
+    id: itemIdSchema,
+    name: z.string().min(1),
+    kind: kindSchema,
+    /** Nullable only for items published for warnings (watchlist, deprecated, blocked). */
+    category: categorySchema.nullable(),
+    stacks: z.array(z.string()),
+    sourceUrl: z.url(),
+    publisher: z.string().nullable(),
+    provenance: provenanceSchema,
+    status: snapshotStatusSchema,
+    version: z.string().min(1),
+    install: installSchema.nullable(),
+    capabilities: z.array(capabilitySchema),
+    contextOverheadTokens: z.number().int().nonnegative().nullable(),
+    supersedes: itemIdSchema.nullable(),
+    supersededBy: itemIdSchema.nullable(),
+    scorecard: z.object({
+      confidence: confidenceSchema,
+      gates: z.partialRecord(gateIdSchema, gateResultSchema),
+      securityFlags: z.number().int().nonnegative(),
+      reviewedAt: z.iso.datetime().nullable(),
+    }),
+    evalSummary: evalSummarySchema.nullable(),
+    lastChecked: z.iso.datetime(),
+  })
+  .superRefine((item, ctx) => {
+    if (!RECOMMENDABLE.has(item.status)) return;
+    if (item.category === null)
+      ctx.addIssue({
+        code: 'custom',
+        path: ['category'],
+        message: 'recommended items need a category',
+      });
+    if (item.install === null)
+      ctx.addIssue({
+        code: 'custom',
+        path: ['install'],
+        message: 'recommended items need install details',
+      });
+    if (item.stacks.length === 0)
+      ctx.addIssue({
+        code: 'custom',
+        path: ['stacks'],
+        message: 'recommended items need at least one stack',
+      });
+  });
 export type SnapshotItem = z.infer<typeof snapshotItemSchema>;
 
 export const snapshotSchema = z

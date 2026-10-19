@@ -6,3 +6,4 @@ export * from './snapshot.js';
 export * from './budget.js';
 export * from './mcp-tools.js';
 export * from './scoring.js';
+export * from './snapshot-public-key.js';

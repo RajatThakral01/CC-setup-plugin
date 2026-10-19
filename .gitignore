@@ -10,3 +10,4 @@ keys/
 *.key
 .DS_Store
 .artifacts/
+.snapshots/

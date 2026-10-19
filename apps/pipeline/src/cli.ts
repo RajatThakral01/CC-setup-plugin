@@ -16,6 +16,8 @@ import { formatSeedReport, importSeed } from './seed/import.js';
 import { readSeedFile } from './seed/seed-file.js';
 import { startWorker } from './worker.js';
 import { runGates, type GateSelection } from './gates/run.js';
+import { publishSnapshot } from './snapshot/run.js';
+import { createSnapshotStore } from './snapshot/store.js';
 
 const DEFAULT_SEED_FILE = fileURLToPath(new URL('../../../catalog/seed.yaml', import.meta.url));
 
@@ -29,6 +31,7 @@ Commands:
   classify [--limit <n>] [--stale]             Classify pending items; --stale also redoes older prompt versions (costs money)
   gates [--item <id>]... | --pending | --recheck  [--limit <n>]
                                        Run credibility gates 0-3 (Docker sandbox for MCP servers)
+  snapshot                             Build, sign and publish a catalog snapshot (SNAPSHOT_STORE)
   worker                               Start the scheduler (daily discovery at DISCOVERY_CRON, UTC)
   spend                                Show Anthropic spend this ISO week and in total`;
 
@@ -147,6 +150,15 @@ async function main(argv: string[]): Promise<number> {
         return reports.some((r) => r.error) ? 1 : 0;
       });
     }
+    case 'snapshot':
+      return withContext(async (ctx) => {
+        const r = await publishSnapshot({ ...ctx, store: createSnapshotStore(ctx.config) });
+        out(`Snapshot ${r.version}: ${r.itemCount} item(s) ${JSON.stringify(r.byStatus)}`);
+        out(`sha256 ${r.sha256}`);
+        out(`Published to ${r.location}`);
+        for (const s of r.skipped) out(`  skipped ${s.id}: ${s.reason}`);
+        return 0;
+      });
     case 'spend':
       return withContext(async (ctx) => {
         const s = await spendSummary(ctx.db);
