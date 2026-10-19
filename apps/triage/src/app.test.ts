@@ -4,6 +4,7 @@ import {
   catalogItems,
   claudeCodeChanges,
   eq,
+  evalRuns,
   insertCandidate,
   scorecards,
   statusEvents,
@@ -24,6 +25,7 @@ afterAll(async () => {
   await t?.cleanup();
 });
 beforeEach(async () => {
+  await t.db.delete(evalRuns);
   await t.db.delete(scorecards);
   await t.db.delete(statusEvents);
   await t.db.delete(catalogItems);
@@ -285,6 +287,62 @@ describe('status changes', () => {
       (await t.db.select().from(catalogItems).where(eq(catalogItems.id, 'example-d')))[0]
         ?.outOfScope,
     ).toEqual([]);
+  });
+});
+
+describe('eval results', () => {
+  it('shows the eval summary against the baseline and each run', async () => {
+    await item('example-candidate');
+    await t.db.insert(scorecards).values({
+      itemId: 'example-candidate',
+      version: '1.0.0',
+      evalSummary: {
+        taskSetVersion: 'browser_testing-v1-abcd1234',
+        model: 'claude-sonnet-5-5',
+        claudeCodeVersion: '2.1.303',
+        baselineItemId: 'example-incumbent',
+        runs: 5,
+        successRate: 0.8,
+        baselineSuccessRate: 0.4,
+        meanTokens: 12345,
+        meanCostUsd: 0.2345,
+        meanWallSeconds: 95,
+        contextOverheadTokens: 1200,
+        verdict: 'better',
+      },
+    });
+    await t.db.insert(evalRuns).values({
+      runId: '20261019-abcdef0123',
+      itemId: 'example-candidate',
+      itemVersion: '1.0.0',
+      taskId: 'counter-increment',
+      taskSetVersion: 'browser_testing-v1-abcd1234',
+      model: 'claude-haiku-5-5',
+      claudeCodeVersion: '2.1.303',
+      withTool: true,
+      success: true,
+      inputTokens: 1000,
+      outputTokens: 200,
+      costUsd: 0.0123,
+      wallSeconds: 61,
+      stage: 'pilot',
+      logsRef: 'local:20261019-abcdef0123',
+    });
+    // Whitespace-insensitive: the template's text wraps across lines.
+    const page = (await (await get('/items/example-candidate')).text()).replace(/\s+/g, ' ');
+    expect(page).toMatch(/>\s?better\s?<\/span/);
+    expect(page).toContain('success 80%');
+    expect(page).toContain('example-incumbent');
+    expect(page).toContain('counter-increment');
+    expect(page).toContain('USD 0.0123');
+    expect(page).toContain('local:20261019-abcdef0123');
+  });
+
+  it('says when an item has no eval results', async () => {
+    await item('example-plain');
+    const page = await (await get('/items/example-plain')).text();
+    expect(page).toContain('No eval summary yet.');
+    expect(page).toContain('No eval runs yet.');
   });
 });
 

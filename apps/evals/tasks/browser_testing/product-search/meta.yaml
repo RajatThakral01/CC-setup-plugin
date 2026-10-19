@@ -1,0 +1,4 @@
+id: product-search
+category: browser_testing
+version: 1
+title: Fix case-insensitive product search

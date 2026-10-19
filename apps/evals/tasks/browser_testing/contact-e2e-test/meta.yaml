@@ -1,0 +1,4 @@
+id: contact-e2e-test
+category: browser_testing
+version: 1
+title: Write an end-to-end test for the contact form

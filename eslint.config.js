@@ -3,7 +3,17 @@ import tseslint from 'typescript-eslint';
 import prettier from 'eslint-config-prettier';
 
 export default tseslint.config(
-  { ignores: ['**/dist/**', '**/.tsbuild/**', '**/coverage/**', 'test/fixtures/projects/**'] },
+  {
+    ignores: [
+      '**/dist/**',
+      '**/.tsbuild/**',
+      '**/coverage/**',
+      'test/fixtures/projects/**',
+      // Eval fixture app and hidden task checks run inside the eval image, not in this workspace.
+      'apps/evals/fixtures/**',
+      'apps/evals/tasks/**',
+    ],
+  },
   js.configs.recommended,
   ...tseslint.configs.recommended,
   prettier,

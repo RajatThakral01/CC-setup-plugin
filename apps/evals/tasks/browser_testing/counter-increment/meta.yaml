@@ -1,0 +1,4 @@
+id: counter-increment
+category: browser_testing
+version: 1
+title: Fix the home page counter

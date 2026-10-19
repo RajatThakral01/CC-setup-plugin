@@ -1,0 +1,27 @@
+{
+  "type": "result",
+  "subtype": "success",
+  "is_error": false,
+  "duration_ms": 41234,
+  "duration_api_ms": 30001,
+  "num_turns": 7,
+  "result": "Fixed the example counter.",
+  "session_id": "00000000-0000-4000-8000-000000000001",
+  "total_cost_usd": 0.0123,
+  "usage": {
+    "input_tokens": 120,
+    "cache_creation_input_tokens": 9000,
+    "cache_read_input_tokens": 40000,
+    "output_tokens": 1500
+  },
+  "modelUsage": {
+    "claude-haiku-5-5": {
+      "inputTokens": 120,
+      "outputTokens": 1500,
+      "cacheReadInputTokens": 40000,
+      "cacheCreationInputTokens": 9000,
+      "costUSD": 0.0123
+    }
+  },
+  "permission_denials": []
+}

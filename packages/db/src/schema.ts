@@ -206,10 +206,26 @@ export const evalRuns = pgTable(
     wallSeconds: real('wall_seconds').notNull().default(0),
     errors: integer('errors').notNull().default(0),
     logsRef: text('logs_ref'),
+    /** `pilot`, `screen` (Stage A), `confirm` (Stage B) or `baseline` (plan M9 9.1). */
+    stage: text('stage').notNull().default('screen'),
     createdAt: createdAt(),
   },
-  (t) => [index('eval_runs_item_idx').on(t.itemId, t.taskSetVersion)],
+  (t) => [
+    index('eval_runs_item_idx').on(t.itemId, t.taskSetVersion),
+    index('eval_runs_cache_idx').on(t.taskId, t.taskSetVersion, t.model, t.claudeCodeVersion),
+  ],
 );
+
+/** Candidates whose eval batch didn't fit the remaining weekly budget (FR-E6), by priority. */
+export const evalQueue = pgTable('eval_queue', {
+  itemId: text('item_id')
+    .primaryKey()
+    .references(() => catalogItems.id),
+  category: text('category').notNull(),
+  priority: integer('priority').notNull().default(0),
+  reason: text('reason').notNull(),
+  queuedAt: timestamp('queued_at', { withTimezone: true }).notNull().defaultNow(),
+});
 
 /** Append-only audit log of every status change (NFR-13). */
 export const statusEvents = pgTable(

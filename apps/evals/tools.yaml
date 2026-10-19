@@ -1,0 +1,11 @@
+# Eval-only settings per catalog item (owner-maintained). The catalog's pinned install details are
+# used as they are; these add only what a headless container needs.
+#   args: extra arguments appended to the MCP server command
+#   playwrightBrowsers: Playwright versions whose Chromium build is baked into the eval image
+items:
+  microsoft-playwright-mcp:
+    # Flags verified with `@playwright/mcp@0.0.83 --help` (2026-10-19).
+    args: ['--headless', '--isolated', '--browser', 'chromium', '--no-sandbox']
+    # @playwright/mcp 0.0.83 depends on playwright 1.64.0-alpha-1790635538000 (Chromium r1247);
+    # the fixture's @playwright/test 1.64.1 uses r1248.
+    playwrightBrowsers: ['1.64.0-alpha-1790635538000']

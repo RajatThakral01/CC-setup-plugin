@@ -181,6 +181,69 @@ export function queuePage(
   );
 }
 
+const pct = (n: number) => `${Math.round(n * 100)}%`;
+
+/** Eval summary (from any scorecard version) plus the item's recent eval runs (plan M9). */
+function evalSection(d: ItemDetail) {
+  const withSummary = d.scorecards.find((c) => c.evalSummary);
+  const s = withSummary?.evalSummary;
+  const summary = s
+    ? html`<p>
+        <span
+          class="badge ${s.verdict === 'better' ? 'pass' : s.verdict === 'worse' ? 'fail' : 'soft_fail'}"
+          >${s.verdict}</span
+        >
+        version ${withSummary.version} · ${s.model} · ${s.runs} run(s) · success
+        ${pct(s.successRate)} vs baseline
+        ${s.baselineSuccessRate === null ? 'n/a' : pct(s.baselineSuccessRate)}
+        (${s.baselineItemId ?? 'no tool'}) · mean ${Math.round(s.meanTokens)} tokens, USD
+        ${s.meanCostUsd.toFixed(4)}, ${Math.round(s.meanWallSeconds)} s · task set
+        ${s.taskSetVersion} · Claude Code ${s.claudeCodeVersion}
+      </p>`
+    : html`<p class="muted">No eval summary yet.</p>`;
+  if (d.evalRuns.length === 0)
+    return html`${summary}
+      <p class="muted">No eval runs yet.</p>`;
+  return html`${summary}
+    <table>
+      <thead>
+        <tr>
+          <th>When</th>
+          <th>Stage</th>
+          <th>Task</th>
+          <th>Model</th>
+          <th>Result</th>
+          <th>Tokens</th>
+          <th>Cost</th>
+          <th>Time</th>
+          <th>Errors</th>
+          <th>Logs</th>
+        </tr>
+      </thead>
+      <tbody>
+        ${d.evalRuns.map(
+          (r) =>
+            html`<tr>
+              <td>${r.createdAt.toISOString().slice(0, 16).replace('T', ' ')}</td>
+              <td>${r.stage}</td>
+              <td>${r.taskId}</td>
+              <td>${r.model}</td>
+              <td>
+                <span class="badge ${r.success ? 'pass' : 'fail'}"
+                  >${r.success ? 'pass' : 'fail'}</span
+                >
+              </td>
+              <td>${r.inputTokens + r.outputTokens}</td>
+              <td>USD ${r.costUsd.toFixed(4)}</td>
+              <td>${Math.round(r.wallSeconds)} s</td>
+              <td>${r.errors}</td>
+              <td>${r.logsRef ?? ''}</td>
+            </tr>`,
+        )}
+      </tbody>
+    </table>`;
+}
+
 export function itemPage(
   d: ItemDetail,
   reviewer: string,
@@ -290,9 +353,7 @@ export function itemPage(
             : html`<p class="muted">Not gated yet.</p>`
         }
         <h3>Eval results</h3>
-        <p class="muted">
-          ${card?.evalSummary ? JSON.stringify(card.evalSummary) : 'No eval results yet (Milestone 9).'}
-        </p>
+        ${evalSection(d)}
       </section>
 
       <section>

@@ -1,0 +1,5 @@
+# Benchmark tasks for the browser_testing category (plan M9, PRD FR-E1).
+# The task-set version used on every run is "<category>-v<version>-<content hash>", so any edit to
+# a task changes the version and invalidates cached baseline runs.
+category: browser_testing
+version: 1

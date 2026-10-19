@@ -161,6 +161,38 @@ export const configSchema = z
     TRIAGE_ADMIN_TOKEN: optionalSecret,
     EVAL_MAX_TURNS: z.coerce.number().int().positive().default(15),
     EVAL_TIMEOUT_SECONDS: z.coerce.number().int().positive().default(300),
+    // Eval harness (plan M9). Claude Code version baked into the eval image and pinned per run.
+    EVAL_CLAUDE_CODE_VERSION: z
+      .string()
+      .regex(/^\d+\.\d+\.\d+$/)
+      .default('2.1.303'),
+    /** Unset: Docker's native platform for the host. Recorded with every run's artifacts. */
+    EVAL_PLATFORM: z.enum(['linux/amd64', 'linux/arm64']).optional(),
+    EVAL_ARTIFACT_DIR: z.string().min(1).default('.artifacts/evals'),
+    /** Hard cap per run (`claude --max-budget-usd`); also the cost estimate before any run is measured. */
+    EVAL_RUN_MAX_USD: usd.default(1.5),
+    EVAL_SCREEN_RUNS: z.coerce.number().int().min(1).max(10).default(3),
+    /** Stage A success-rate lead over the baseline needed before a Stage B confirmation. */
+    EVAL_CONFIRM_THRESHOLD: z.coerce.number().min(0).max(1).default(0.2),
+    /** Stop a candidate's Stage A after it fails this many tasks the baseline passed. */
+    EVAL_EARLY_STOP_FAILS: z.coerce.number().int().min(1).default(2),
+    EVAL_SETUP_TIMEOUT_SECONDS: z.coerce.number().int().positive().default(600),
+    EVAL_CHECK_TIMEOUT_SECONDS: z.coerce.number().int().positive().default(900),
+    EVAL_CPUS: z.coerce.number().positive().max(8).default(2),
+    EVAL_MEMORY_MB: z.coerce.number().int().min(512).max(16384).default(4096),
+    EVAL_PIDS_LIMIT: z.coerce.number().int().min(64).max(8192).default(2048),
+    /** Hosts the eval container may reach through the egress proxy (besides the Anthropic API relay). */
+    EVAL_EGRESS_ALLOWLIST: z
+      .string()
+      .default('registry.npmjs.org')
+      .transform((v) =>
+        v
+          .split(',')
+          .map((s) => s.trim().toLowerCase())
+          .filter(Boolean),
+      ),
+    /** Upstream for the API relay; the eval container never holds the real API key. */
+    EVAL_ANTHROPIC_API_URL: z.url().default('https://api.anthropic.com'),
     HTTP_MAX_RETRIES: z.coerce.number().int().min(0).max(10).default(4),
     HTTP_BASE_DELAY_MS: z.coerce.number().int().positive().default(500),
     HTTP_MAX_DELAY_MS: z.coerce.number().int().positive().default(60_000),

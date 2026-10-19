@@ -7,6 +7,7 @@ import {
   inArray,
   rawSourceRecords,
   scorecards,
+  evalRuns,
   signalSnapshots,
   sql,
   statusEvents,
@@ -146,12 +147,14 @@ export interface ItemDetail {
     >
   >;
   snapshot: typeof signalSnapshots.$inferSelect | null;
+  /** Eval runs with this item as the tool under test, newest first (plan M9). */
+  evalRuns: Array<typeof evalRuns.$inferSelect>;
 }
 
 export async function getItemDetail(db: Db, id: string): Promise<ItemDetail | null> {
   const [item] = await db.select().from(catalogItems).where(eq(catalogItems.id, id));
   if (!item) return null;
-  const [cards, events, records, snaps] = await Promise.all([
+  const [cards, events, records, snaps, runs] = await Promise.all([
     db
       .select()
       .from(scorecards)
@@ -178,8 +181,21 @@ export async function getItemDetail(db: Db, id: string): Promise<ItemDetail | nu
       .where(eq(signalSnapshots.itemId, id))
       .orderBy(desc(signalSnapshots.capturedAt))
       .limit(1),
+    db
+      .select()
+      .from(evalRuns)
+      .where(eq(evalRuns.itemId, id))
+      .orderBy(desc(evalRuns.createdAt))
+      .limit(50),
   ]);
-  return { item, scorecards: cards, events, records, snapshot: snaps[0] ?? null };
+  return {
+    item,
+    scorecards: cards,
+    events,
+    records,
+    snapshot: snaps[0] ?? null,
+    evalRuns: runs,
+  };
 }
 
 /** Marks an item in or out of scope for the MVP stack (not a status change, so not audited). */

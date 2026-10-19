@@ -1,0 +1,1 @@
+On the home page of this Next.js app, clicking the "Add one" button doesn't change the count that is shown. Fix it so every click adds one to the count. Check the fix in a real browser before you finish.

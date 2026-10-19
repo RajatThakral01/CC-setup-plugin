@@ -1,0 +1,4 @@
+id: example-fake-task
+category: browser_testing
+version: 1
+title: Fake task for driver tests

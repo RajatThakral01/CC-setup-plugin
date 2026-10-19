@@ -1,0 +1,1 @@
+Users report that clicking "About" in the site header of this Next.js app shows a 404 page instead of the About page. Fix it, and check in a real browser that the header link now opens the About page.

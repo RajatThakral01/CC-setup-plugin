@@ -1,0 +1,1 @@
+On the /contact page of this Next.js app, filling in the form and clicking "Send" does nothing: no thank-you message and no error. Fix it so a valid submission shows the thank-you message and an invalid email still shows the error. Check it in a real browser before you finish.

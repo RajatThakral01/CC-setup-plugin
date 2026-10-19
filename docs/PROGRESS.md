@@ -4,25 +4,25 @@
 
 - **Session range:** M8.1 (fixes before acceptance) and M9 (eval harness, paid pilot only), owner-approved 2026-10-19. The M8 owner acceptance (docs/M8_ACCEPTANCE.md) is still to be run by the owner.
 - **Current milestone:** 9 — Eval harness.
-- **Total Anthropic API spend to date:** USD 0.1359 (Haiku classification only). Weekly cap USD 20, total cap USD 40.
+- **Total Anthropic API spend to date:** USD 0.2807 (classification USD 0.1359 + M9 pilot USD 0.1449). Weekly cap USD 20, total cap USD 40.
 - **Remote:** https://github.com/RajatThakral01/CC-setup-plugin — pushed after every milestone; CI green.
 
 ## Milestones
 
-| #   | Milestone                   | Status                          | Commit |
-| --- | --------------------------- | ------------------------------- | ------ |
-| 0   | Repo and tooling            | Done                            | M0     |
-| 1   | Shared schemas and database | Done                            | M1     |
-| 2   | Seed catalog importer       | Done                            | M2     |
-| 3   | Discovery jobs              | Done                            | M3     |
-| 4   | Credibility gates 0 to 3    | Done                            | M4     |
-| 5   | Triage UI                   | Done                            | M5     |
-| 6   | Signed catalog snapshot     | Done                            | M6     |
-| 7   | Plugin MCP server           | Done                            | M7     |
-| 8   | Plugin packaging            | Built; owner acceptance pending | M8     |
-| 8.1 | Fixes before acceptance     | Done                            | M8.1   |
-| 9   | Eval harness                |                                 |        |
-| 10  | End-to-end acceptance       |                                 |        |
+| #   | Milestone                   | Status                                              | Commit |
+| --- | --------------------------- | --------------------------------------------------- | ------ |
+| 0   | Repo and tooling            | Done                                                | M0     |
+| 1   | Shared schemas and database | Done                                                | M1     |
+| 2   | Seed catalog importer       | Done                                                | M2     |
+| 3   | Discovery jobs              | Done                                                | M3     |
+| 4   | Credibility gates 0 to 3    | Done                                                | M4     |
+| 5   | Triage UI                   | Done                                                | M5     |
+| 6   | Signed catalog snapshot     | Done                                                | M6     |
+| 7   | Plugin MCP server           | Done                                                | M7     |
+| 8   | Plugin packaging            | Built; owner acceptance pending                     | M8     |
+| 8.1 | Fixes before acceptance     | Done                                                | M8.1   |
+| 9   | Eval harness                | Built; pilot done; full eval pending owner go-ahead | M9     |
+| 10  | End-to-end acceptance       |                                                     |        |
 
 ## Milestone 0 — Repo and tooling (done)
 
@@ -185,6 +185,27 @@ Built:
 - `docs/M8_ACCEPTANCE.md` updated (version check, Opus suggestion, hook proposals and a hook check).
 
 Tests: model rules, scanner exception narrowness, vendor gating (flagged, low, medium), tooling detection, hook recipes, generated hook commands executed against fake formatter/linter/typecheck binaries (exit codes, `stop_hook_active`), hook merge (append-only, idempotent, same-tool skip, malformed config), generate with hooks, version gate (unit + through the MCP server), Python image guard. 461 tests (+4 real-Docker skipped locally, run separately: 34 sandbox tests green).
+
+## Milestone 9 — Eval harness (built; pilot run; full evaluation waits for the owner)
+
+Built (`apps/evals`):
+
+- Next.js fixture app and 5 `browser_testing` tasks with hidden, deterministic Playwright checks and known-good solutions; `pnpm evals selftest` proves each check fails on the broken state and passes on the solution (5/5, real image, no API calls).
+- Eval image (`pnpm evals image`): pinned node base, fixture with dependencies, Chromium builds for the fixture and for Playwright MCP, Claude Code 2.1.303.
+- Docker driver with its own sandbox policy: the agent container never holds the API key (relay swaps a placeholder for the real key), the relay refuses non-Haiku/Sonnet models (so no Opus), egress only to an allowlist (others denied and logged), no mounts, non-root, limits, always removed.
+- Runner: budget pre-flight with measured costs, `--max-budget-usd` capped at what's left, ledger rows from Claude Code's reported usage, `eval_runs` rows (now with `stage`), artifacts via `ArtifactStore`.
+- Two-stage evaluation (Haiku screening ×3, Sonnet confirmation ×1) against the category incumbent, baseline cache by key, early stop, batch pre-flight with `eval_queue`, summary on the scorecard; triage shows the summary and every run.
+- CLI: `image`, `selftest`, `pilot`, `run`, `plan`, `queue`, `cleanup`; paid commands need `--confirm-spend`.
+
+Acceptance:
+
+- [x] Pilot costs recorded; weekly run plan computed and documented (DECISIONS, M9 pilot).
+- [x] One category has 5 tasks with deterministic checks that pass on a known-good solution and fail on the broken starting state (`pnpm evals selftest`, 5/5).
+- [ ] At least one candidate evaluated against a baseline, with results visible in triage. **Not run: the owner allowed only the pilot this session.** Built and tested with the fake driver (`evaluate.test.ts`) and a triage route test; the pilot runs already show on the Playwright MCP item page. Command when approved: `pnpm evals run --item microsoft-playwright-mcp --confirm-spend` (incumbent: `anthropics-skills-webapp-testing`).
+- [x] Ledger never exceeds USD 20 in any ISO week; a test drives worst-case runs until refusal (eval ≤ 17, week ≤ 20).
+- [x] No Opus call is possible anywhere: config refusal and `check:models` (CI), `runOne` refuses before running, the relay refuses Opus requests (test), and the container maps every alias to Haiku/Sonnet (real-Docker test).
+
+Tests (499 + 5 real-Docker, all green): task loader and version hashing, output parser, policy (every rule), relay (key swap, model refusal, egress denial, no key in logs), costs and plan maths, runner/evaluate on a test DB with a fake driver (ledger, artifacts, Opus refusal, pre-flight, hard stop, cap at budget left, unparsed output, cache keys, early stop, Stage B, queue), real-Docker driver with a fake `claude`, triage eval section.
 
 ## Open questions
 

@@ -1,0 +1,1 @@
+The search box on the /products page of this Next.js app is supposed to be case-insensitive, but typing "lamp" finds nothing even though there is a "Desk Lamp". Fix the search, and check in a real browser that it works.

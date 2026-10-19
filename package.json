@@ -20,7 +20,8 @@
     "pipeline": "tsx --conditions=@cc-setup-agent/source apps/pipeline/src/cli.ts",
     "ci:status": "tsx --conditions=@cc-setup-agent/source scripts/ci-status.ts",
     "triage": "tsx --conditions=@cc-setup-agent/source apps/triage/src/main.ts",
-    "plugin:build": "pnpm --filter @cc-setup-agent/plugin build:plugin"
+    "plugin:build": "pnpm --filter @cc-setup-agent/plugin build:plugin",
+    "evals": "tsx --conditions=@cc-setup-agent/source apps/evals/src/cli.ts"
   },
   "devDependencies": {
     "@cc-setup-agent/core": "workspace:*",

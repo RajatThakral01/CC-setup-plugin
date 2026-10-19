@@ -284,6 +284,70 @@ Every container that runs third-party code is started through `buildRunArgs()` a
 - **NFR-9 supported range: Claude Code `>= 2.0.0 < 2.2.0`** (current minor 2.1 and the previous minor 2.0, per NFR-9; config shapes verified on 2.1.302/2.1.303). `generate_config` refuses outside it, and when the version can't be detected, with a message saying why and what to do; nothing else is gated (reading and recommending stay available). Detection: the MCP handshake's `clientInfo` (Claude Code 2.1.303 identifies itself as `claude-code`; seen in the CLI binary), else `claude --version`. The output carries `claudeCodeVersion`. Raise the upper bound only after re-verifying against a new minor.
 - **Python image:** the only remaining 3.12 reference was `GATE_PYTHON_IMAGE` in `.env.example`. Editing it was blocked again by the project's `.env.*` deny rule, so the owner gets a one-line command. The owner's effective config already uses 3.13 (config loads with the default; values not printed). New guard: the config loader refuses any `GATE_PYTHON_IMAGE` below Python 3.13, so a stale override fails at startup with a clear message.
 
+## Milestone 9
+
+**Harness layout** (`apps/evals`)
+
+- `fixtures/next-app/`: small Next.js 16.4.2 app (React 19.3.1, TypeScript 6.0.3: Next's type check doesn't support TS 7; `@playwright/test` 1.64.1), with home/counter, products search, about and contact pages; exact versions from npm, lockfile generated with `npm install --package-lock-only --ignore-scripts`. The contact form uses `noValidate`, so the app's own validation runs (native email validation blocked submission and made one task unsolvable; caught by the self-test).
+- `tasks/browser_testing/`: 5 tasks (`counter-increment`, `nav-about-link`, `contact-form-submit`, `product-search`, `contact-e2e-test`), each with `task.md`, `setup.sh` (introduces the bug), `check.sh`, `check/` (hidden Playwright specs), `solution.sh` (known-good fix) and `meta.yaml`; `_check/` holds the shared hidden config. Checks build the app and run hidden Playwright specs on a private port after stopping any server the agent left running. `contact-e2e-test` grades the agent's own test by mutation: it must pass on the app and fail on two broken variants. Hidden checks assert the error **text**, not `role="alert"`, because Next.js renders a route announcer with `role="alert"`.
+- **Task-set version** = `<category>-v<n>-<sha256 of every task file, 8 chars>`, so any task edit invalidates cached baselines automatically.
+- **`pnpm evals selftest`** proves each task in the real eval image without API calls: setup only → check fails; setup + solution → check passes. All 5 pass (2026-10-19).
+- `tools.yaml`: eval-only settings per item (extra args, Playwright browser versions to bake in). Playwright MCP 0.0.83 runs with `--headless --isolated --browser chromium --no-sandbox` (flags read from its `--help` in a container) and needs Chromium r1247 (playwright 1.64.0-alpha-1790635538000), while the fixture's Playwright 1.64.1 uses r1248; the image has both. Smoke-tested free: 25 tools, navigates a page.
+
+**Eval image**
+
+- Built from the pinned node image (`GATE_NODE_IMAGE`), plus `git`, `procps`, `python3`, the fixture with `npm ci`, Playwright Chromium (and the extra versions), and `@anthropic-ai/claude-code@EVAL_CLAUDE_CODE_VERSION` (2.1.303, the version verified on the host). Tag `ccsa-eval:<hash of Dockerfile, fixture, build args>`. Native platform unless `EVAL_PLATFORM` is set (Chromium under amd64 emulation on Apple Silicon is too slow); the platform is recorded in every run's artifacts. The harness refuses to run if the image's `claude --version` differs from the config.
+- Known limitation: the image has Python 3 (Debian's) but no Python Playwright, which the incumbent `webapp-testing` skill's helper scripts expect. Agents can still use the fixture's Node Playwright. Revisit before Stage A of that comparison.
+
+**Sandbox and the API key** (stricter than plan 9.2 rule 4, "pass only ANTHROPIC_API_KEY into the container")
+
+- The agent container **never holds the real key**. It gets a placeholder key and `ANTHROPIC_BASE_URL=http://<relay>:8080`. The relay (our script, in the pinned node image) swaps in the real key, which reaches only the relay, as a bare `-e ANTHROPIC_API_KEY` taken from the docker CLI's environment (never on a command line), and forwards to `EVAL_ANTHROPIC_API_URL`. A tool under test can't read or exfiltrate the key.
+- **No Opus is possible:** the relay refuses (403) any request whose `model` isn't in `ALLOWED_MODELS` or matches `opus`; the container maps every alias (`opus`, `fable`, `sonnet`, `haiku`) and subagents to Haiku/Sonnet via `ANTHROPIC_DEFAULT_*_MODEL` and `CLAUDE_CODE_SUBAGENT_MODEL` (env names from code.claude.com/docs/en/model-config, 2026-10-19). Refusals are logged and counted as run errors.
+- **Egress:** the agent container is only on an internal network. Its only route out is the relay's proxy, which allows `EVAL_EGRESS_ALLOWLIST` hosts (default `registry.npmjs.org`, for `npx` tools) and denies and logs everything else. `CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC`, `DISABLE_AUTOUPDATER`, `DISABLE_TELEMETRY`, `DISABLE_ERROR_REPORTING` and `NEXT_TELEMETRY_DISABLED` are set.
+- **Policy check** (`assertEvalPolicy`, strict allowlist on the exact `docker run` args): expected image per role, `--rm`, non-root, `--cap-drop ALL`, `no-new-privileges`, CPU/memory/pids limits (agent 2 CPUs, 4 GB, 2048 pids, 1 GB `/dev/shm` for Chromium), run-specific internal network, env allowlist per role, no mounts at all (files go in with `docker exec -i` as the container user), placeholder-only key in the agent. Permissions inside the container are fully open (`--dangerously-skip-permissions`), as the plan allows for a disposable container.
+- **Cleanup:** containers and network are force-removed in `finally`, plus a label sweep; `pnpm evals cleanup` sweeps everything. Real-Docker test (fake `claude`, CI) checks: placeholder key only, direct internet blocked, non-allowlisted CONNECT denied and logged, hidden check files arrive only after the agent, nothing left behind. The pipeline boundary test exempts `apps/evals/src/sandbox` (the eval sandbox), nothing else.
+
+**Headless flags (verified for Claude Code 2.1.303):** `-p`, `--model`, `--output-format json`, `--max-budget-usd`, `--dangerously-skip-permissions`, `--no-session-persistence`, `--strict-mcp-config`, `--mcp-config` from `claude --help`; `--max-turns <turns>` is defined but hidden from help (found in the CLI binary). Result JSON fields `num_turns`, `is_error`, `total_cost_usd`, `modelUsage` and subtypes `success`, `error_max_turns`, `error_max_budget_usd` are present in the binary. The parser is lenient (unknown fields kept, missing optional fields defaulted).
+
+**Budget**
+
+- Every run: model allow-list check → ledger pre-flight with the measured mean cost for that model, or `EVAL_RUN_MAX_USD` (1.50) before any run of it has been measured (a cap, not a guess) → `claude --max-budget-usd min(EVAL_RUN_MAX_USD, budget left)`, so even a run that spends its whole cap can't push the week over → ledger rows per model from Claude Code's `modelUsage` cost (purpose `eval`, ref = run id), written even for failed runs. If the output can't be parsed but the relay saw successful API calls, the run's cap is recorded, so the ledger never under-counts. A test drives worst-case runs until refusal: eval spend stays ≤ USD 17 and the week ≤ USD 20.
+- Batches (one task's Stage A runs, or a Stage B pair) are pre-flighted as runs × measured mean; a batch that doesn't fit is queued in `eval_queue` (priority, reason) instead of run (FR-E6). `pnpm evals queue` lists it.
+- Paid commands (`pilot`, `run`) need `--confirm-spend`.
+
+**Stages, cache, verdicts** (plan 9.1)
+
+- Stage A: `EVAL_SCREEN_RUNS` (3) `MODEL_FAST` runs per task for the candidate and for the baseline (the category's incumbent: a `recommended` item, else `recommended_provisional`; or no tool). Early stop after `EVAL_EARLY_STOP_FAILS` (2) tasks the baseline passed (≥ 50% of runs) and the candidate didn't → verdict `worse`.
+- Stage B only if the candidate's Stage A success rate leads by `EVAL_CONFIRM_THRESHOLD` (0.2): 1 `MODEL_STRONG` run per task each. Candidate ≥ baseline → `better`, else `inconclusive`. Without Stage B: `equal`, or `worse` if it trails by the threshold.
+- Baseline cache key: task id, task-set version, model, Claude Code version, incumbent id and version (or no tool). Cached runs are reused; any change reruns them.
+- Summary (FR-E3: success rate, mean tokens, cost, wall time, context overhead, baseline rate) goes to the candidate's scorecard for its pinned version; triage shows it plus every eval run (stage, task, model, result, tokens, cost, time, errors, logs ref).
+- Schema: `eval_runs.stage` (`pilot` / `screen` / `confirm` / `baseline`) and table `eval_queue` (migration `0003_eval_harness`).
+- Logs per run through `ArtifactStore` (local: `EVAL_ARTIFACT_DIR`, default `.artifacts/evals/<run id>/`): Claude JSON and stderr, setup and check output, diff, relay log, `meta.json` (pinned versions, image, platform, cap).
+
+### M9 pilot (2026-10-19, owner-approved: one task, once per model)
+
+Candidate `microsoft-playwright-mcp` 0.0.83 on task `contact-form-submit` (task set `browser_testing-v1-ed8bfdcc`), Claude Code 2.1.303, image `ccsa-eval:fe115927975053a8`, linux/arm64, `--max-turns 15`, cap USD 1.50 per run:
+
+| Model               | Result | Cost (Claude Code `costUSD`) | Tokens (in incl. cache / out)                      | Turns | Agent time | Run id                |
+| ------------------- | ------ | ---------------------------- | -------------------------------------------------- | ----- | ---------- | --------------------- |
+| `claude-haiku-5-5`  | pass   | USD 0.0102                   | 419,338 / 3,224                                    | 19    | 70 s       | `20261019-f46d67155a` |
+| `claude-sonnet-5-5` | pass   | USD 0.1346                   | 330,206 / 1,698 (294,940 cache read, 35,246 write) | 16    | 48 s       | `20261019-3187256b0a` |
+
+Both runs passed the hidden check. Pilot spend USD 0.1449, in the ledger (purpose `eval`). Notes:
+
+- Each run logged 1 "error": denied egress to Google hosts (Chromium's own background calls). After the pilot, denied egress is recorded in `meta.json` (`egressDenied`) and no longer counted as a run error. The two pilot rows keep `errors = 1`.
+- After the pilot the image gained a build-time `npm run build`, so Next's `tsconfig.json` rewrite stays out of run diffs and checks start from a warm cache. New tag `ccsa-eval:749979749bd4914c`; same Claude Code version, so cache keys are unchanged. Self-test re-run: 5/5.
+- `num_turns` (19) can exceed `--max-turns` (15): Claude Code counts turns differently from the limit (the run still ended with `success`).
+
+**Weekly run plan** (`pnpm evals plan`, from the measured means; 5 tasks, 3 Haiku runs per task in Stage A, 1 Sonnet run per task in Stage B; 90% of the USD 17 weekly eval share planned = USD 15.30):
+
+- Baselines, once per incumbent and cache key: Stage A USD 0.15, Stage B USD 0.67.
+- Candidate: Stage A USD 0.15, Stage B USD 0.67, both stages USD 0.83.
+- First week (baselines + candidates): about 17 candidates. Later weeks: about 18 per week if every candidate reaches Stage B, up to 99 if they stop after Stage A.
+- Total cap (USD 39.72 left at plan time): about 42 full candidates including baselines.
+
+The plan rests on one run per model on one task, so the harness doesn't hard-code it: every run and batch is pre-flighted with the measured mean, which updates as runs accrue, and each run is capped at USD 1.50 and at the budget left. Suggested first real batch, once the owner approves: Playwright MCP vs the `webapp-testing` incumbent (about USD 1.65 with baselines). Variance is also bounded by the catalog: the browser-testing category has only a handful of evaluable candidates (npx MCP servers and skills without credentials).
+
 ## Dependencies
 
 One line each: why it was added.
@@ -306,3 +370,4 @@ One line each: why it was added.
 - `semver` — resolve dependency ranges to concrete versions for OSV queries.
 - `hono`, `@hono/node-server` — triage web server (plan section 3).
 - `esbuild` (plugin dev) — bundle the plugin's MCP server into one file (plan 4.1).
+- `yaml`, `zod` added to `apps/evals` (already workspace dependencies) — task metadata and tools file parsing.
