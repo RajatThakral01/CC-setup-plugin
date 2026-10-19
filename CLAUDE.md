@@ -40,6 +40,7 @@ Every other choice: decide, record it in `docs/DECISIONS.md`, keep going. Never 
 - `pnpm db:health` — check the database connection
 - `pnpm check:models` — fail if any file names an Opus model ID
 - `pnpm keys:generate --out <dir outside repo>` — Ed25519 snapshot signing keys
+- `pnpm plugin:build` — bundle the plugin's MCP server to `apps/plugin/dist/server.js`
 - `pnpm ci:status [--sha <commit>] [--logs]` — GitHub Actions result for a commit (uses GITHUB_TOKEN)
 
 (Add new scripts here when you create them.)

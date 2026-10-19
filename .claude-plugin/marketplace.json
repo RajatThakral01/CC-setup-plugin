@@ -1,0 +1,12 @@
+{
+  "name": "cc-setup-agent",
+  "owner": { "name": "Rajat Thakral" },
+  "description": "Local marketplace for the setup-agent plugin.",
+  "plugins": [
+    {
+      "name": "setup-agent",
+      "source": "./apps/plugin",
+      "description": "Recommends, writes and verifies an evidence-backed Claude Code setup (MVP: Next.js)."
+    }
+  ]
+}

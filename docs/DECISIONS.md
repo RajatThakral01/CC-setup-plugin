@@ -261,6 +261,14 @@ Every container that runs third-party code is started through `buildRunArgs()` a
 - **check_updates:** matches installed servers to catalog items by name, then package spec, then URL. Notices are blocked (critical, first), deprecated, superseded, newer pinned version, not in catalog.
 - **Not built (P0 gaps to note):** NFR-9 Claude Code version gating (refuse to write config for unsupported versions) isn't implemented yet; the skill (M8) runs inside Claude Code, which already validates its own config.
 
+## Milestone 8
+
+- **Plugin layout** (verified in M0 and with `claude plugin validate`, Claude Code 2.1.302): `apps/plugin/.claude-plugin/plugin.json` (`name: setup-agent`), `apps/plugin/.mcp.json` declaring the `setup-agent` server as `node ${CLAUDE_PLUGIN_ROOT}/dist/server.js`, with env `PLUGIN_DATA_DIR=${CLAUDE_PLUGIN_DATA}` and `CC_SETUP_AGENT_CATALOG_URL=${CC_SETUP_AGENT_CATALOG_URL:-}`. The four commands are in `commands/` (`setup`, `setup-check`, `setup-rollback`, `explain`) and the guided flow is the `setup-guide` skill. The skill is not named `setup`, because plugin skills and commands share the `/setup-agent:<name>` namespace and would collide.
+- **Local marketplace** at the repo root: `.claude-plugin/marketplace.json` (`cc-setup-agent`), plugin source `./apps/plugin`. Both manifests pass `claude plugin validate`.
+- **Bundle:** esbuild bundles `server/main.ts` into a single minified ESM file `apps/plugin/dist/server.js` (≈810 KB, Node 20+), with a `createRequire` banner for bundled CommonJS. `pnpm plugin:build` builds it; `dist/` is gitignored, so build before installing. TypeScript's own output for the plugin moved to `.tsbuild/`, so `dist/` holds only the bundle. A test builds the bundle, checks it contains no database, pipeline or Anthropic SDK code, and drives it over stdio.
+- **Catalog location for the plugin:** `CC_SETUP_AGENT_CATALOG_URL` in the user's shell (e.g. `file://<repo>/.snapshots/`), passed through the plugin's `.mcp.json`. No default is baked in (no absolute paths in code, and distribution is deferred).
+- **Acceptance test** steps for the owner: `docs/M8_ACCEPTANCE.md`.
+
 ## Dependencies
 
 One line each: why it was added.
@@ -282,3 +290,4 @@ One line each: why it was added.
 - `@modelcontextprotocol/sdk` — MCP client for gate 0/3 (list tools over stdio in the sandbox, or HTTP for remote servers) (plan section 3).
 - `semver` — resolve dependency ranges to concrete versions for OSV queries.
 - `hono`, `@hono/node-server` — triage web server (plan section 3).
+- `esbuild` (plugin dev) — bundle the plugin's MCP server into one file (plan 4.1).

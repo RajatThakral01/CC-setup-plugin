@@ -6,8 +6,8 @@
   "exports": {
     ".": {
       "@cc-setup-agent/source": "./server/index.ts",
-      "types": "./dist/index.d.ts",
-      "default": "./dist/index.js"
+      "types": "./.tsbuild/index.d.ts",
+      "default": "./.tsbuild/index.js"
     }
   },
   "dependencies": {
@@ -17,5 +17,8 @@
   },
   "devDependencies": {
     "esbuild": "^0.28.2"
+  },
+  "scripts": {
+    "build:plugin": "node build.mjs"
   }
 }

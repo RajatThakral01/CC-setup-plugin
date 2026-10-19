@@ -2,9 +2,13 @@
   "extends": "../../tsconfig.base.json",
   "compilerOptions": {
     "rootDir": "server",
-    "outDir": "dist"
+    "outDir": ".tsbuild"
   },
   "include": ["server"],
   "exclude": ["server/**/*.test.ts"],
-  "references": [{ "path": "../../packages/shared" }]
+  "references": [
+    {
+      "path": "../../packages/shared"
+    }
+  ]
 }

@@ -6,3 +6,4 @@ docs/IMPLEMENTATION_PLAN.md
 catalog/*.proposed.yaml
 packages/db/drizzle
 test/fixtures/projects
+**/.tsbuild
