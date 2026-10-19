@@ -1,0 +1,5 @@
+{
+  "name": "example-next-existing",
+  "private": true,
+  "dependencies": { "next": "15.5.0", "react": "^19.0.0", "@supabase/supabase-js": "^2.0.0", "stripe": "^18.0.0" }
+}

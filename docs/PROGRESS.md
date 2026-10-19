@@ -3,7 +3,7 @@
 ## Current state
 
 - **Session range:** Milestones 6–8 (owner-approved 2026-10-19; M8 stops before the owner-run acceptance).
-- **Current milestone:** 7 — Plugin MCP server.
+- **Current milestone:** 8 — Plugin packaging, commands and skill.
 - **Total Anthropic API spend to date:** USD 0.1359 (Haiku classification only). Weekly cap USD 20, total cap USD 40.
 - **Remote:** https://github.com/RajatThakral01/CC-setup-plugin — pushed after every milestone; CI green.
 
@@ -18,8 +18,8 @@
 | 4   | Credibility gates 0 to 3    | Done   | M4     |
 | 5   | Triage UI                   | Done   | M5     |
 | 6   | Signed catalog snapshot     | Done   | M6     |
-| 7   | Plugin MCP server           | Next   |        |
-| 8   | Plugin packaging            |        |        |
+| 7   | Plugin MCP server           | Done   | M7     |
+| 8   | Plugin packaging            | Next   |        |
 | 9   | Eval harness                |        |        |
 | 10  | End-to-end acceptance       |        |        |
 
@@ -148,6 +148,18 @@ Acceptance:
 Tests: sign/verify, tamper, wrong key, status filtering, skipped incomplete items, version numbering, local store files and pointer, key mismatch, missing key file, deferred GitHub store.
 
 Not run live: the owner's `.env` `SNAPSHOT_SIGNING_KEY_PATH` still holds the placeholder path, and no items are approved yet (the snapshot would be empty).
+
+## Milestone 7 — Plugin MCP server (done)
+
+Built (`apps/plugin/server`): `sync_catalog`, `analyze_project`, `recommend_setup`, `explain_item`, `backup_setup`, `generate_config`, `verify_setup`, `check_updates`, `rollback_setup` on the MCP SDK (stdio), every output validated by the shared schemas and carrying `catalogVersion`; signed-catalog verification with the embedded public key; fixture projects (`next-fresh`, `next-existing`, `next-monorepo`, `next-blocked`, `not-next`) and a signed fixture catalog.
+
+Acceptance:
+
+- [x] All tools pass against fixture Next.js projects: fresh app, existing config, monorepo, blocked item installed (and the unsupported-stack path).
+- [x] `generate_config` never changes content outside the managed block (test + snapshot tests of generated files).
+- [x] Recommendation output is identical across two runs (byte comparison, also through the MCP server).
+
+Tests: unit tests per tool, snapshot tests of generated `CLAUDE.md` / `.mcp.json` / `settings.json`, a 300-case randomised property test that merges never drop unknown `.mcp.json` servers, byte-exact rollback, tampered catalog / wrong key / tampered cache rejection, verify with working, broken, missing-env and duplicate-tool servers, end-to-end journey through an MCP client, tool definitions under 2,000 tokens. 431 tests total.
 
 ## Open questions
 

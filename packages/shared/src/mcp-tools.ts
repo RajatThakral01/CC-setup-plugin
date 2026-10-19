@@ -32,6 +32,8 @@ export const projectProfileSchema = z.object({
   testRunners: z.array(z.enum(['vitest', 'jest', 'playwright', 'cypress'])),
   styling: z.array(z.string()),
   databaseLibs: z.array(z.string()),
+  /** Detected auth, payments, email, CMS and observability libraries (package names). */
+  integrations: z.array(z.string()),
   monorepo: z.object({
     isMonorepo: z.boolean(),
     markers: z.array(z.string()),
@@ -53,6 +55,8 @@ export type ProjectProfile = z.infer<typeof projectProfileSchema>;
 export const analyzeProjectOutputSchema = z.object({
   catalogVersion,
   profile: projectProfileSchema,
+  /** Prominent warnings, e.g. a blocked item already installed (FR-U2). */
+  warnings: z.array(z.string()),
 });
 
 // recommend_setup

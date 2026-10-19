@@ -1,0 +1,73 @@
+// Vitest Snapshot v1, https://vitest.dev/guide/snapshot.html
+
+exports[`generateConfig > creates config for a fresh project (snapshot of generated files) > .claude/settings.json 1`] = `
+"{
+  "$schema": "https://json.schemastore.org/claude-code-settings.json",
+  "enabledMcpjsonServers": [
+    "example-docs-mcp",
+    "example-git-mcp",
+    "example-supabase-mcp",
+    "example-vercel-mcp"
+  ]
+}
+"
+`;
+
+exports[`generateConfig > creates config for a fresh project (snapshot of generated files) > .mcp.json 1`] = `
+"{
+  "mcpServers": {
+    "example-docs-mcp": {
+      "command": "npx",
+      "args": [
+        "-y",
+        "@example/docs-mcp@1.2.0"
+      ]
+    },
+    "example-git-mcp": {
+      "command": "uvx",
+      "args": [
+        "--from",
+        "example-git-mcp==0.3.0",
+        "example-git-mcp"
+      ],
+      "env": {
+        "EXAMPLE_GIT_TOKEN": "\${EXAMPLE_GIT_TOKEN}"
+      }
+    },
+    "example-supabase-mcp": {
+      "command": "npx",
+      "args": [
+        "-y",
+        "@example/supabase-mcp@2.0.0"
+      ],
+      "env": {
+        "EXAMPLE_SUPABASE_TOKEN": "\${EXAMPLE_SUPABASE_TOKEN}"
+      }
+    },
+    "example-vercel-mcp": {
+      "type": "http",
+      "url": "https://mcp.example.test/vercel"
+    }
+  }
+}
+"
+`;
+
+exports[`generateConfig > creates config for a fresh project (snapshot of generated files) > CLAUDE.md 1`] = `
+"<!-- setup-agent:start -->
+## Claude Code setup (managed by setup-agent, catalog 2026.10.19-1)
+
+Tools chosen for this project:
+- **example-docs-mcp** (docs): https://github.com/example-org/example-docs-mcp
+- **example-git-mcp** (git_github): https://github.com/example-org/example-git-mcp
+- **example-review-plugin** (code_review): https://github.com/example-org/example-plugins/tree/main/plugins/review
+- **example-supabase-mcp** (database): https://github.com/example-org/example-supabase-mcp
+- **example-vercel-mcp** (deploy): https://github.com/example-org/example-vercel-mcp
+- **example-vitest-skill** (unit_testing): https://github.com/example-org/example-vitest-skill
+
+Environment variables these tools need (set them in your shell, never in this file): EXAMPLE_GIT_TOKEN, EXAMPLE_SUPABASE_TOKEN.
+
+Edit outside this block freely; setup-agent only replaces the text between the markers.
+<!-- setup-agent:end -->
+"
+`;

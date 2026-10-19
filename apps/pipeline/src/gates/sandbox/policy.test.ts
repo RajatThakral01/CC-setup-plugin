@@ -129,6 +129,9 @@ describe('sandbox boundary', () => {
         else if (full.endsWith('.ts') && !full.endsWith('.test.ts')) {
           const rel = relative(src, full);
           if (rel.includes(join('gates', 'sandbox'))) continue;
+          // The plugin's verify_setup starts the user's own approved servers on their machine,
+          // exactly as Claude Code would; that is not third-party evaluation in the pipeline.
+          if (rel === join('apps', 'plugin', 'server', 'verify.ts')) continue;
           const text = readFileSync(full, 'utf8');
           if (
             /StdioClientTransport|spawn\(\s*['"]docker|execFile\w*\(\s*['"]docker|createDockerCli\(\s*['"]/.test(

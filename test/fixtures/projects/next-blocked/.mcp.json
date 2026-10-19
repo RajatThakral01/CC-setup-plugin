@@ -1,0 +1,6 @@
+{
+  "mcpServers": {
+    "example-blocked-mcp": { "command": "npx", "args": ["-y", "@example/blocked-mcp@0.1.0"] },
+    "example-docs-mcp": { "command": "npx", "args": ["-y", "@example/docs-mcp@1.0.0"] }
+  }
+}

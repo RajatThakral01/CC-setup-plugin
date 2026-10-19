@@ -229,6 +229,38 @@ Every container that runs third-party code is started through `buildRunArgs()` a
 - **Schema relaxed for warning-only items:** `category` and `install` may be null and `stacks` empty for watchlist/deprecated/blocked items (needed so blocked items can still trigger warnings); recommended items must have all three. Items that fail the schema are skipped and listed in the report instead of breaking the snapshot.
 - **`pnpm ci:status` on a private repo:** on 403/404 it exits with code 2 and a clear message (give `GITHUB_TOKEN` "Actions: read" on the repo, or check github.com) instead of being removed.
 
+## Milestone 7
+
+- **Plugin dependencies:** `@modelcontextprotocol/sdk` and `zod` only, plus `packages/shared` (no `packages/core`, `packages/db` or `apps/pipeline`; enforced by the ESLint import rule). Logging is a minimal JSON writer to stderr (stdout carries MCP).
+- **Plugin settings from the environment** passed by the plugin's `.mcp.json`:
+  - `PLUGIN_DATA_DIR` (`${CLAUDE_PLUGIN_DATA}`, falling back to `~/.cc-setup-agent`);
+  - `CC_SETUP_AGENT_CATALOG_URL`, a folder URL holding `latest.json` (`file://` for the local store now, `https://` later);
+  - `CC_SETUP_AGENT_CONTEXT_WARN_TOKENS` (default 15,000).
+
+  Unexpanded `${…}` placeholders are treated as unset.
+
+- **Catalog trust (NFR-5):** sync reads `latest.json`, downloads the catalog and its signature, checks the Ed25519 signature against the public key compiled into the plugin, checks the sha256 and the schema, then atomically replaces the cached copy. Any failure keeps the last valid catalog. The cached copy is re-verified on every load, so a tampered file on disk is refused. Age is reported; over 7 days → stale warning.
+- **analyze_project:** reads `package.json`, lockfile names, config file names, top-level folders (`app/`, `pages/`, `apps/*`, `packages/*`), `.mcp.json` and the `.claude/` layout; never source contents. The profile gained `integrations` (auth, payments, email, CMS, observability libraries). The output gained `warnings` (installed blocked items, FR-U2).
+- **recommend_setup (deterministic):**
+  - **Categories:** derived from the profile and answers (e.g. Playwright, or a test-first workflow → browser testing; database libraries → database; deploy target → deploy; Tailwind or shadcn → UI components; detected integrations → auth, payments, email, CMS, observability; docs and code review always; git when it's a repo).
+  - **Ranking:** one winner per category, ranked eval uplift > confidence > provenance > health, then lower context overhead, then id.
+  - **Vendor affinity:** if any candidate matches a detected library or deploy target (e.g. Prisma, Vercel), only matching candidates compete. A deliberate refinement of the plan's ordering, so a Prisma project doesn't get a Supabase server.
+  - **Exclusions:** every other eligible item is listed as excluded with a reason.
+  - **Unsupported stacks:** only items tagged `any`, at low confidence (PRD 14.1).
+- **Model recommendation: Sonnet (and Haiku) only.** CLAUDE.md forbids Opus in product code or config, so the rules table never names it; for low budget sensitivity it says "a larger model is available if you need it". Flagged for the owner.
+- **generate_config:**
+  - **`.mcp.json`:** servers named by catalog item id. npx → `npx -y <pkg>@<exact version>`; uvx → `uvx --from <pkg>==<version> <pkg>`; remote → `{type: "http", url}`; env values are always `${NAME}` placeholders. Existing servers are kept untouched.
+  - **`settings.json`:** deep merge; adds our server names to `enabledMcpjsonServers`; keeps all keys and permission lists; never adds allow rules on its own.
+  - **`CLAUDE.md`:** only the text between `<!-- setup-agent:start -->` and `<!-- setup-agent:end -->` is written (appended if absent).
+  - **Other items:** plugins, skills and manual items become install steps (`claude plugin marketplace add/install`, copy instructions).
+  - **Validation:** our generated entries are checked against the verified `.mcp.json`/settings shapes; the user's hand-written entries aren't re-validated (that would block them).
+  - **Writes:** none; it returns contents and unified diffs.
+  - **Hook recipes:** catalog hook items are repos without templates, so they're listed as manual steps for now.
+- **backup_setup / rollback_setup:** backups go to `.claude/setup-agent/backups/<UTC timestamp>-<rand>/` with `manifest.json` (path, existed, sha256) for `CLAUDE.md`, `.mcp.json`, `.claude/settings.json` and all files under `.claude/agents/` and `.claude/skills/`. Rollback restores byte for byte (checksums verified), removes tracked files that didn't exist at backup time, and touches nothing outside the manifest.
+- **verify_setup:** settings and `.mcp.json` parse; required `${VAR}` names present in the environment (names only, values never returned); each server started with the SDK client (stdio or HTTP) and `tools/list` within 15 s; duplicate tool names across servers. This runs the user's own approved config on their machine, like Claude Code does, so it is exempt from the pipeline's sandbox boundary test (explicit exemption for `apps/plugin/server/verify.ts`).
+- **check_updates:** matches installed servers to catalog items by name, then package spec, then URL. Notices are blocked (critical, first), deprecated, superseded, newer pinned version, not in catalog.
+- **Not built (P0 gaps to note):** NFR-9 Claude Code version gating (refuse to write config for unsupported versions) isn't implemented yet; the skill (M8) runs inside Claude Code, which already validates its own config.
+
 ## Dependencies
 
 One line each: why it was added.

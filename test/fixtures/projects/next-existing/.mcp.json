@@ -1,0 +1,8 @@
+{
+  "mcpServers": {
+    "example-unknown-server": {
+      "command": "node",
+      "args": ["./tools/my-server.js"]
+    }
+  }
+}
