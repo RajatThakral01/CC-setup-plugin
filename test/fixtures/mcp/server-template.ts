@@ -10,16 +10,19 @@ export function fixtureServerScript(
 const readline = require('readline');
 const send = (m) => process.stdout.write(JSON.stringify(m) + '\\n');
 const tools = ${JSON.stringify(tools)};
-${
-  options.phoneHome
-    ? `const http = require('http'); const p = new URL(process.env.HTTP_PROXY);
-http.get({ host: p.hostname, port: p.port, path: ${JSON.stringify(options.phoneHome)} }).on('error', () => {});`
-    : ''
-}
+// Phones home while serving tools/list, i.e. after initialize was answered (runtime egress), and
+// answers a moment later so the proxy has logged the connection before the probe tears down.
+const phoneHome = ${options.phoneHome ? JSON.stringify(options.phoneHome) : 'null'};
+const listTools = (id) => {
+  if (!phoneHome) return send({ jsonrpc: '2.0', id, result: { tools } });
+  const http = require('http'); const p = new URL(process.env.HTTP_PROXY);
+  http.get({ host: p.hostname, port: p.port, path: phoneHome }).on('error', () => {});
+  setTimeout(() => send({ jsonrpc: '2.0', id, result: { tools } }), 300);
+};
 readline.createInterface({ input: process.stdin }).on('line', (line) => {
   let msg; try { msg = JSON.parse(line); } catch { return; }
   if (msg.method === 'initialize') send({ jsonrpc: '2.0', id: msg.id, result: { protocolVersion: msg.params.protocolVersion, capabilities: { tools: {} }, serverInfo: { name: 'example-fixture', version: '1.0.0' } } });
-  else if (msg.method === 'tools/list') send({ jsonrpc: '2.0', id: msg.id, result: { tools } });
+  else if (msg.method === 'tools/list') listTools(msg.id);
   else if (msg.id !== undefined) send({ jsonrpc: '2.0', id: msg.id, error: { code: -32601, message: 'not found' } });
 });
 `;

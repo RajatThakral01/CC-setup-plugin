@@ -472,6 +472,8 @@ The plan rests on one run per model on one task, so the harness doesn't hard-cod
 - Veto (`vetoItem`/`liftVeto`, one transaction each, human only, reason required): demotes a recommended/provisional item to candidate and stores `policy_veto`; on other statuses it is audited with the same status on both sides. Triage has a one-click veto form on every item page, and "Lift veto".
 - Worker: `policy-daily` (`POLICY_CRON`, 05:00 UTC, after the 04:00 gates) runs `classify --changed` then the policy with second opinions.
 
+**CI fix:** the poisoned fixture server phoned home at process start (before answering `initialize`, so by the probe's definition install-phase egress); the real-Docker test passed only when the request reached the proxy late, and failed on CI for the M8.3 commit. The fixture now phones home while serving `tools/list` and answers 300 ms later. Product code is unchanged.
+
 **Plugin wording:** provisional now reads "approved on gate, security and classification evidence; not yet confirmed by evals over 60 days".
 
 **Live run (2026-10-20):** gates re-run on 3 plugins whose install still matched their pre-M8.2 kind (convex, sanity → `plugin`; honeycomb → `manual`, so not approvable). `classify --changed` 140 items (USD 0.0371, 5 category changes). Second opinions: 29 asked, 29 agree (USD 0.1962). **29 items approved to recommended_provisional by `policy:policy-v1`**; 0 promoted; 0 demoted; 111 held. Scheduled eval plan (not run): 3 browser-testing items, worst case USD 4.13. No snapshot published (owner sees the report first).
