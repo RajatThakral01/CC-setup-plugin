@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import type { ProjectProfile, SetupAnswers } from '@cc-setup-agent/shared';
+import type { ProjectProfile, SetupAnswers, Snapshot, SnapshotItem } from '@cc-setup-agent/shared';
 import { fixtureSnapshot } from '../../../test/fixtures/plugin/catalog.js';
 import { recommendSetup } from './recommend.js';
 
@@ -25,6 +25,7 @@ const profile: ProjectProfile = {
   mcpServerNames: [],
   stacks: ['nextjs'],
   isGitRepo: true,
+  tooling: { formatter: 'prettier', linter: 'eslint', scripts: ['lint', 'typecheck'] },
 };
 const answers: SetupAnswers = {
   goal: 'marketing site',
@@ -34,6 +35,7 @@ const answers: SetupAnswers = {
   workflow: 'standard',
 };
 const snapshot = fixtureSnapshot();
+const prismaItem = snapshot.items.find((i) => i.id === 'example-prisma-mcp')!;
 
 describe('recommendSetup', () => {
   const r = recommendSetup(snapshot, profile, answers, 15000);
@@ -116,11 +118,57 @@ describe('recommendSetup', () => {
     expect(py.items.every((i) => i.confidence === 'low')).toBe(true);
   });
 
-  it('recommends Sonnet-class models only', () => {
-    for (const budgetSensitivity of ['low', 'medium', 'high'] as const) {
-      expect(['sonnet', 'haiku']).toContain(
-        recommendSetup(snapshot, profile, { ...answers, budgetSensitivity }, 15000).model.model,
-      );
-    }
+  it('takes its model suggestion from the model rules', () => {
+    expect(r.model.model).toBe('sonnet');
+    expect(
+      recommendSetup(
+        snapshot,
+        profile,
+        { ...answers, complexity: 'complex', budgetSensitivity: 'low' },
+        15000,
+      ).model.model,
+    ).toBe('opus');
+  });
+});
+
+describe('vendor matching', () => {
+  const withPrisma = (overrides: Partial<SnapshotItem>): Snapshot => ({
+    ...snapshot,
+    items: snapshot.items.map((i) => (i.id === 'example-prisma-mcp' ? { ...i, ...overrides } : i)),
+  });
+  const database = (s: Snapshot) => {
+    const out = recommendSetup(s, profile, answers, 15000);
+    return {
+      item: out.items.find((i) => i.category === 'database')!,
+      prisma: out.excluded.find((e) => e.id === 'example-prisma-mcp'),
+    };
+  };
+
+  it('ignores the vendor preference for a security-flagged item and says why', () => {
+    const { item, prisma } = database(
+      withPrisma({ scorecard: { ...prismaItem.scorecard, securityFlags: 1 } }),
+    );
+    expect(item.id).toBe('example-supabase-mcp');
+    expect(item.reason).toContain(
+      'example-prisma-mcp matches your stack but it has security flags',
+    );
+    expect(item.reason).toContain('normal ranking applies');
+    expect(prisma?.reason).toMatch(/Matches your stack, but it has security flags/);
+  });
+
+  it('ignores the vendor preference for a low-confidence item', () => {
+    const { item } = database(
+      withPrisma({ scorecard: { ...prismaItem.scorecard, confidence: 'low' } }),
+    );
+    expect(item.id).toBe('example-supabase-mcp');
+    expect(item.reason).toContain('its confidence is low');
+  });
+
+  it('keeps the vendor preference for a medium-confidence, unflagged item', () => {
+    const { item } = database(
+      withPrisma({ scorecard: { ...prismaItem.scorecard, confidence: 'medium' } }),
+    );
+    expect(item.id).toBe('example-prisma-mcp');
+    expect(item.reason).toContain('Matches your stack');
   });
 });

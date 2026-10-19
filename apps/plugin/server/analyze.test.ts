@@ -1,3 +1,6 @@
+import { mkdtemp, writeFile } from 'node:fs/promises';
+import { tmpdir } from 'node:os';
+import { join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { describe, expect, it } from 'vitest';
 import { analyzeProject } from './analyze.js';
@@ -29,6 +32,26 @@ describe('analyzeProject', () => {
       mcpServerNames: [],
       stacks: ['nextjs'],
       isGitRepo: false,
+      tooling: { formatter: 'prettier', linter: 'eslint', scripts: ['lint', 'typecheck'] },
+    });
+  });
+
+  it('detects Biome from its config file, and no tooling when there is none', async () => {
+    const dir = await mkdtemp(join(tmpdir(), 'ccsa-biome-'));
+    await writeFile(
+      join(dir, 'package.json'),
+      JSON.stringify({ dependencies: { next: '16.0.0' } }),
+    );
+    expect((await analyzeProject(dir)).tooling).toEqual({
+      formatter: null,
+      linter: null,
+      scripts: [],
+    });
+    await writeFile(join(dir, 'biome.json'), '{}');
+    expect((await analyzeProject(dir)).tooling).toEqual({
+      formatter: 'biome',
+      linter: 'biome',
+      scripts: [],
     });
   });
 

@@ -20,9 +20,19 @@ const SCAN_EXT = new Set([
   '.toml',
 ]);
 
-/** Test files may name Opus IDs to prove they are refused; nothing else may. */
-function isExempt(rel: string): boolean {
-  return rel.endsWith('.test.ts') || rel === 'scripts/forbidden-models.ts';
+/**
+ * The plugin's model rules for users (Opus allowed in recommendations, not in product API calls).
+ * Exactly this one file; nothing else in the plugin or the backend is exempt.
+ */
+export const USER_MODEL_RULES_FILE = 'apps/plugin/server/model-rules.ts';
+
+/** Test files may name Opus IDs to prove they are refused; the user model rules may name Opus. */
+export function isExempt(rel: string): boolean {
+  return (
+    rel.endsWith('.test.ts') ||
+    rel === 'scripts/forbidden-models.ts' ||
+    rel === USER_MODEL_RULES_FILE
+  );
 }
 
 export interface Finding {

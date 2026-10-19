@@ -111,6 +111,14 @@ const officialImage = (name: 'node' | 'python') =>
       `must be the official ${name} image pinned as ${name}:<tag>@sha256:<digest>`,
     );
 
+/** Python image tags like `3.13-slim-bookworm`: version must be 3.13+ (owner decision, M4). */
+export function pythonAtLeast313(image: string): boolean {
+  const m = /python:(\d+)\.(\d+)/.exec(image);
+  if (!m) return false;
+  const [major, minor] = [Number(m[1]), Number(m[2])];
+  return major > 3 || (major === 3 && minor >= 13);
+}
+
 export const SECRET_ENV_KEYS = [
   'DATABASE_URL',
   'ANTHROPIC_API_KEY',
@@ -198,9 +206,14 @@ export const configSchema = z
     GATE_NODE_IMAGE: officialImage('node').default(
       'node:22-bookworm-slim@sha256:c3de60bf2f9dd0ac6370e6117950ff62d6e339527e7472301c9c78a017978392',
     ),
-    GATE_PYTHON_IMAGE: officialImage('python').default(
-      'python:3.13-slim-bookworm@sha256:a1165e272e578941b84abc79e4ab38a0305cd12803a5c4247979ac7655f4d641',
-    ),
+    GATE_PYTHON_IMAGE: officialImage('python')
+      .refine((v) => pythonAtLeast313(v), {
+        message:
+          'must be Python 3.13 or newer (some MCP servers need it); use the pinned python:3.13-slim-bookworm image',
+      })
+      .default(
+        'python:3.13-slim-bookworm@sha256:a1165e272e578941b84abc79e4ab38a0305cd12803a5c4247979ac7655f4d641',
+      ),
     GATE_INSTALL_TIMEOUT_SECONDS: z.coerce.number().int().positive().default(180),
     GATE_LIST_TOOLS_TIMEOUT_SECONDS: z.coerce.number().int().positive().default(30),
     GATE_CPUS: z.coerce.number().positive().max(4).default(1),

@@ -9,14 +9,18 @@ import { fixtureSnapshot, writeSignedCatalog } from '../../../test/fixtures/plug
 import { createServer } from './index.js';
 import { settingsFromEnv } from './settings.js';
 
-async function connect(catalogUrl: string | undefined, publicKeyPem: string) {
+async function connect(
+  catalogUrl: string | undefined,
+  publicKeyPem: string,
+  claudeCodeVersion: string | null = '2.1.303',
+) {
   const settings = {
     ...settingsFromEnv({}),
     dataDir: await mkdtemp(join(tmpdir(), 'ccsa-data-')),
     catalogUrl,
     publicKeyPem,
   };
-  const server = createServer(settings, {});
+  const server = createServer(settings, {}, { claudeCodeVersion: async () => claudeCodeVersion });
   const [a, b] = InMemoryTransport.createLinkedPair();
   await server.connect(a);
   const client = new Client({ name: 'test', version: '0' });
@@ -137,6 +141,26 @@ describe('plugin MCP server', () => {
       notices: Array<{ type: string }>;
     };
     expect(updates.notices[0]?.type).toBe('blocked');
+  });
+
+  it('refuses to generate config for unsupported Claude Code versions (NFR-9)', async () => {
+    const c = await writeSignedCatalog(fixtureSnapshot());
+    const root = await copyFixture('next-fresh');
+    for (const [version, message] of [
+      ['1.0.128', /too old/],
+      ['2.2.0', /newer than setup-agent has been verified against/],
+      [null, /Couldn't detect the Claude Code version/],
+    ] as const) {
+      const { call } = await connect(c.url, c.publicKeyPem, version);
+      await call('sync_catalog');
+      const r = await call('generate_config', { path: root, approvedIds: ['example-docs-mcp'] });
+      expect(r).toMatchObject({ isError: true, text: expect.stringMatching(message) });
+      expect(r.text).toContain('no config was generated');
+    }
+    const { call } = await connect(c.url, c.publicKeyPem, '2.0.14 (Claude Code)');
+    await call('sync_catalog');
+    const ok = await call('generate_config', { path: root, approvedIds: ['example-docs-mcp'] });
+    expect(ok.json()['claudeCodeVersion']).toBe('2.0.14');
   });
 
   it('returns clear errors instead of throwing', async () => {

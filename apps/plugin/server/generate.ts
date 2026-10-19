@@ -1,8 +1,11 @@
 import { join } from 'node:path';
 import { z } from 'zod';
 import type { Snapshot, SnapshotItem } from '@cc-setup-agent/shared';
+import type { HookId } from '@cc-setup-agent/shared';
+import { analyzeProject } from './analyze.js';
 import { unifiedDiff } from './diff.js';
 import { PluginError, readText } from './files.js';
+import { hookRecipes, mergeHooks, type HookMergeResult, type HookRecipe } from './hooks.js';
 
 export const BLOCK_START = '<!-- setup-agent:start -->';
 export const BLOCK_END = '<!-- setup-agent:end -->';
@@ -23,6 +26,17 @@ const httpServerSchema = z.looseObject({
 export const mcpJsonSchema = z.looseObject({
   mcpServers: z.record(z.string(), z.union([stdioServerSchema, httpServerSchema])),
 });
+const hookGroupSchema = z.looseObject({
+  matcher: z.string().optional(),
+  hooks: z.array(
+    z.looseObject({
+      type: z.literal('command'),
+      command: z.string().min(1),
+      timeout: z.number().int().positive().optional(),
+    }),
+  ),
+});
+export const hooksSchema = z.record(z.string(), z.array(hookGroupSchema));
 export const settingsSchema = z.looseObject({
   permissions: z
     .looseObject({
@@ -47,6 +61,7 @@ export interface GenerateResult {
   files: GeneratedFile[];
   requiredEnvVars: string[];
   installCommands: string[];
+  skippedHooks: HookMergeResult['skipped'];
 }
 
 /** `.mcp.json` entry for an item, with pinned versions and env placeholders only (FR-G6, FR-G7). */
@@ -155,8 +170,23 @@ const union = (a: unknown, b: string[]) => [
   ]),
 ];
 
-/** Deep-merges settings: keeps every existing key, unions permission and server lists. */
-export function mergeSettings(existing: string | null, serverNames: string[]): string {
+/**
+ * Deep-merges settings: keeps every existing key, unions permission and server lists, and appends
+ * approved hook recipes without touching existing hooks.
+ */
+export function mergeSettings(
+  existing: string | null,
+  serverNames: string[],
+  recipes: HookRecipe[] = [],
+): string {
+  return mergeSettingsDetailed(existing, serverNames, recipes).content;
+}
+
+export function mergeSettingsDetailed(
+  existing: string | null,
+  serverNames: string[],
+  recipes: HookRecipe[],
+): { content: string; skippedHooks: HookMergeResult['skipped'] } {
   let base: Record<string, unknown> = existing === null ? { $schema: SETTINGS_SCHEMA_URL } : {};
   if (existing !== null) {
     try {
@@ -179,7 +209,13 @@ export function mergeSettings(existing: string | null, serverNames: string[]): s
       allow: union(perms['allow'], []),
       deny: union(perms['deny'], []),
     };
-  return `${JSON.stringify(merged, null, 2)}\n`;
+  let skippedHooks: HookMergeResult['skipped'] = [];
+  if (recipes.length > 0) {
+    const r = mergeHooks(base['hooks'], recipes);
+    if (r.added.length > 0) merged['hooks'] = r.hooks;
+    skippedHooks = r.skipped;
+  }
+  return { content: `${JSON.stringify(merged, null, 2)}\n`, skippedHooks };
 }
 
 function file(path: string, before: string | null, after: string): GeneratedFile {
@@ -191,6 +227,15 @@ function file(path: string, before: string | null, after: string): GeneratedFile
   };
 }
 
+/** Recipes for the approved hook ids; refuses ids that don't fit this project's tooling. */
+async function approvedRecipes(root: string, hookIds: HookId[]): Promise<HookRecipe[]> {
+  const available = hookRecipes(await analyzeProject(root));
+  const missing = hookIds.filter((id) => !available.some((r) => r.id === id));
+  if (missing.length > 0)
+    throw new PluginError(`hook recipe doesn't fit this project's tooling: ${missing.join(', ')}`);
+  return available.filter((r) => hookIds.includes(r.id));
+}
+
 /**
  * Builds the config for the approved items and returns contents and diffs; never writes (plan M7).
  * Outputs are validated against the Claude Code config shapes before they are returned (FR-G9).
@@ -199,6 +244,7 @@ export async function generateConfig(
   root: string,
   snapshot: Snapshot,
   approvedIds: string[],
+  hookIds: HookId[] = [],
 ): Promise<GenerateResult> {
   const byId = new Map(snapshot.items.map((i) => [i.id, i]));
   const unknown = approvedIds.filter((id) => !byId.has(id));
@@ -235,14 +281,27 @@ export async function generateConfig(
       mergeClaudeMd(claudeMd, managedBlock(items, requiredEnvVars, snapshot.version)),
     ),
   ];
+  const recipes = hookIds.length > 0 ? await approvedRecipes(root, hookIds) : [];
   if (Object.keys(servers).length > 0 || mcpJson !== null) {
     // Validate what we generate; servers the user added by hand are kept as they are.
     mcpJsonSchema.parse({ mcpServers: servers });
     const next = mergeMcpJson(mcpJson, servers);
     files.push(file('.mcp.json', mcpJson, next));
-    const nextSettings = mergeSettings(settings, Object.keys(servers));
-    settingsSchema.parse(JSON.parse(nextSettings));
-    files.push(file('.claude/settings.json', settings, nextSettings));
   }
-  return { files, requiredEnvVars, installCommands };
+  let skippedHooks: HookMergeResult['skipped'] = [];
+  if (Object.keys(servers).length > 0 || mcpJson !== null || recipes.length > 0) {
+    const merged = mergeSettingsDetailed(settings, Object.keys(servers), recipes);
+    settingsSchema.parse(JSON.parse(merged.content));
+    // Our hook groups must match the verified hooks shape (event → [{matcher?, hooks: [...]}]).
+    hooksSchema.parse({
+      PostToolUse: [],
+      Stop: [],
+      ...Object.fromEntries(
+        recipes.map((r) => [r.event, mergeHooks(undefined, [r]).hooks[r.event]]),
+      ),
+    });
+    skippedHooks = merged.skippedHooks;
+    files.push(file('.claude/settings.json', settings, merged.content));
+  }
+  return { files, requiredEnvVars, installCommands, skippedHooks };
 }

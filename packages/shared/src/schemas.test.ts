@@ -80,7 +80,13 @@ describe('MCP tool schemas', () => {
     expect(recommendSetupInputSchema.safeParse({ profile: {}, answers: {} }).success).toBe(false);
   });
   it('refuses absolute or escaping paths in generated files', () => {
-    const base = { catalogVersion: '2026.10.19-1', requiredEnvVars: [], installCommands: [] };
+    const base = {
+      catalogVersion: '2026.10.19-1',
+      claudeCodeVersion: '2.1.303',
+      requiredEnvVars: [],
+      installCommands: [],
+      skippedHooks: [],
+    };
     const file = { action: 'create', content: '', diff: '' };
     expect(
       generateConfigOutputSchema.safeParse({ ...base, files: [{ ...file, path: '.mcp.json' }] })

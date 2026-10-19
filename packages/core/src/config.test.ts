@@ -89,6 +89,16 @@ describe('parseConfig', () => {
     }
   });
 
+  it('defaults to the pinned Python 3.13 image and refuses older Python images', () => {
+    expect(parseConfig({}).GATE_PYTHON_IMAGE).toMatch(
+      /^python:3\.13-slim-bookworm@sha256:a1165e27/,
+    );
+    const old = `python:3.12-slim-bookworm@sha256:${'a'.repeat(64)}`;
+    expect(() => parseConfig({ GATE_PYTHON_IMAGE: old })).toThrow(/GATE_PYTHON_IMAGE/);
+    const newer = `python:3.14-slim-bookworm@sha256:${'b'.repeat(64)}`;
+    expect(parseConfig({ GATE_PYTHON_IMAGE: newer }).GATE_PYTHON_IMAGE).toBe(newer);
+  });
+
   it('rejects a warn threshold above the total cap', () => {
     expect(() => parseConfig({ TOTAL_BUDGET_USD: '40', TOTAL_BUDGET_WARN_USD: '50' })).toThrow(
       /TOTAL_BUDGET_WARN_USD/,

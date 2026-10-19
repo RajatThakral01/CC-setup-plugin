@@ -51,15 +51,54 @@ const STYLING_LIBS = [
   '@heroui/react',
 ];
 
+/** package.json scripts that hook recipes may call. */
+const HOOK_SCRIPTS = ['lint', 'typecheck', 'type-check', 'format'];
+const PRETTIER_CONFIGS = [
+  '.prettierrc',
+  '.prettierrc.json',
+  '.prettierrc.json5',
+  '.prettierrc.yaml',
+  '.prettierrc.yml',
+  '.prettierrc.toml',
+  '.prettierrc.js',
+  '.prettierrc.cjs',
+  '.prettierrc.mjs',
+  '.prettierrc.ts',
+  'prettier.config.js',
+  'prettier.config.cjs',
+  'prettier.config.mjs',
+  'prettier.config.ts',
+];
+const ESLINT_CONFIGS = [
+  'eslint.config.js',
+  'eslint.config.mjs',
+  'eslint.config.cjs',
+  'eslint.config.ts',
+  'eslint.config.mts',
+  '.eslintrc',
+  '.eslintrc.json',
+  '.eslintrc.js',
+  '.eslintrc.cjs',
+  '.eslintrc.yaml',
+  '.eslintrc.yml',
+];
+
 const packageJsonSchema = (
   raw: string | null,
-): { deps: Record<string, string>; workspaces: boolean } => {
-  if (!raw) return { deps: {}, workspaces: false };
+): {
+  deps: Record<string, string>;
+  workspaces: boolean;
+  scripts: string[];
+  prettierKey: boolean;
+} => {
+  if (!raw) return { deps: {}, workspaces: false, scripts: [], prettierKey: false };
   try {
     const p = JSON.parse(raw) as {
       dependencies?: unknown;
       devDependencies?: unknown;
       workspaces?: unknown;
+      scripts?: unknown;
+      prettier?: unknown;
     };
     const pick = (v: unknown) =>
       v && typeof v === 'object'
@@ -68,9 +107,11 @@ const packageJsonSchema = (
     return {
       deps: { ...pick(p.dependencies), ...pick(p.devDependencies) } as Record<string, string>,
       workspaces: Boolean(p.workspaces),
+      scripts: Object.keys(pick(p.scripts)),
+      prettierKey: p.prettier !== undefined,
     };
   } catch {
-    return { deps: {}, workspaces: false };
+    return { deps: {}, workspaces: false, scripts: [], prettierKey: false };
   }
 };
 
@@ -142,6 +183,9 @@ export async function analyzeProject(root: string): Promise<ProjectProfile> {
   for (const m of markers) if (await exists(join(root, m))) presentMarkers.push(m);
   if (pkg.workspaces) presentMarkers.push('package.json workspaces');
   const mcpJson = await readText(join(root, '.mcp.json'));
+  const biome = has('@biomejs/biome') || (await anyExists(root, ['biome.json', 'biome.jsonc']));
+  const prettier = has('prettier') || pkg.prettierKey || (await anyExists(root, PRETTIER_CONFIGS));
+  const eslint = has('eslint') || (await anyExists(root, ESLINT_CONFIGS));
 
   return {
     packageManager,
@@ -169,5 +213,11 @@ export async function analyzeProject(root: string): Promise<ProjectProfile> {
     mcpServerNames: mcpServerNames(mcpJson),
     stacks: isNextjs ? ['nextjs'] : [],
     isGitRepo: await exists(join(root, '.git')),
+    tooling: {
+      // Prettier wins when both are configured: it's the more common formatter in Next.js apps.
+      formatter: prettier ? 'prettier' : biome ? 'biome' : null,
+      linter: eslint ? 'eslint' : biome ? 'biome' : null,
+      scripts: HOOK_SCRIPTS.filter((s) => pkg.scripts.includes(s)),
+    },
   };
 }

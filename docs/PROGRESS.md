@@ -2,8 +2,8 @@
 
 ## Current state
 
-- **Session range:** Milestones 6–8 (owner-approved 2026-10-19; M8 stops before the owner-run acceptance).
-- **Current milestone:** 8 — built; waiting for the owner-run acceptance (docs/M8_ACCEPTANCE.md). Next after that: 9 — Eval harness.
+- **Session range:** M8.1 (fixes before acceptance) and M9 (eval harness, paid pilot only), owner-approved 2026-10-19. The M8 owner acceptance (docs/M8_ACCEPTANCE.md) is still to be run by the owner.
+- **Current milestone:** 9 — Eval harness.
 - **Total Anthropic API spend to date:** USD 0.1359 (Haiku classification only). Weekly cap USD 20, total cap USD 40.
 - **Remote:** https://github.com/RajatThakral01/CC-setup-plugin — pushed after every milestone; CI green.
 
@@ -20,6 +20,7 @@
 | 6   | Signed catalog snapshot     | Done                            | M6     |
 | 7   | Plugin MCP server           | Done                            | M7     |
 | 8   | Plugin packaging            | Built; owner acceptance pending | M8     |
+| 8.1 | Fixes before acceptance     | Done                            | M8.1   |
 | 9   | Eval harness                |                                 |        |
 | 10  | End-to-end acceptance       |                                 |        |
 
@@ -171,6 +172,19 @@ Acceptance (owner-run, pending):
 
 - [ ] Owner installs the plugin into Claude Code from the local marketplace and completes `/setup` on a fresh Next.js app.
 - [ ] `/setup-rollback` restores the original files exactly (byte compare). Covered by an automated byte-compare test on fixtures; the live check is in the owner's steps.
+
+## Milestone 8.1 — Fixes before acceptance (done)
+
+Built:
+
+- **Opus for users:** model rules moved to `apps/plugin/server/model-rules.ts`; Opus is suggested only for complex work with budget sensitivity `low`, with a cost note. `complexity` is inferred by the skill from the goal (no sixth question). `pnpm check:models` exempts exactly that file. LLM client and config Opus refusal unchanged; CLAUDE.md states the distinction.
+- **Vendor matching:** the vendor preference applies only to unflagged items with at least medium confidence; otherwise normal ranking, and the plan says why.
+- **Hook recipes:** `format-on-edit` (Prettier or Biome), `lint-on-edit` (ESLint or Biome), `typecheck-on-stop` (typecheck script or `tsc --noEmit`), offered per detected tooling, approved one by one, merged into `.claude/settings.json` as a diff; existing hooks are never changed; re-runs are idempotent.
+- **NFR-9:** Claude Code version detected from the MCP handshake (fallback `claude --version`); `generate_config` refuses outside `>= 2.0.0 < 2.2.0` with a clear message.
+- **Python image:** config now refuses Python images below 3.13. `.env.example` line still to be changed by the owner (blocked by the `.env.*` deny rule; command in the session report).
+- `docs/M8_ACCEPTANCE.md` updated (version check, Opus suggestion, hook proposals and a hook check).
+
+Tests: model rules, scanner exception narrowness, vendor gating (flagged, low, medium), tooling detection, hook recipes, generated hook commands executed against fake formatter/linter/typecheck binaries (exit codes, `stop_hook_active`), hook merge (append-only, idempotent, same-tool skip, malformed config), generate with hooks, version gate (unit + through the MCP server), Python image guard. 461 tests (+4 real-Docker skipped locally, run separately: 34 sandbox tests green).
 
 ## Open questions
 

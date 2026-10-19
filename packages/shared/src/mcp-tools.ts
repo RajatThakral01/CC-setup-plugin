@@ -50,6 +50,12 @@ export const projectProfileSchema = z.object({
   mcpServerNames: z.array(z.string()),
   stacks: z.array(z.string()),
   isGitRepo: z.boolean(),
+  /** Formatter, linter and the relevant package.json script names; used for hook recipes. */
+  tooling: z.object({
+    formatter: z.enum(['prettier', 'biome']).nullable(),
+    linter: z.enum(['eslint', 'biome']).nullable(),
+    scripts: z.array(z.string()),
+  }),
 });
 export type ProjectProfile = z.infer<typeof projectProfileSchema>;
 export const analyzeProjectOutputSchema = z.object({
@@ -66,6 +72,8 @@ export const setupAnswersSchema = z.object({
   budgetSensitivity: z.enum(['low', 'medium', 'high']),
   riskTolerance: z.enum(['low', 'medium', 'high']),
   workflow: z.enum(['test_first', 'standard', 'exploratory', 'other']),
+  /** Inferred from the goal by the setup skill (not a separate question); drives the model rule. */
+  complexity: z.enum(['simple', 'standard', 'complex']).optional(),
 });
 export type SetupAnswers = z.infer<typeof setupAnswersSchema>;
 export const recommendSetupInputSchema = z.object({
@@ -82,6 +90,14 @@ export const recommendedItemSchema = z.object({
   confidence: confidenceSchema,
   contextOverheadTokens: z.number().int().nonnegative().nullable(),
 });
+export const hookIdSchema = z.enum(['format-on-edit', 'lint-on-edit', 'typecheck-on-stop']);
+export type HookId = z.infer<typeof hookIdSchema>;
+export const hookProposalSchema = z.object({
+  id: hookIdSchema,
+  description: z.string(),
+  reason: z.string(),
+});
+export type HookProposal = z.infer<typeof hookProposalSchema>;
 export const excludedItemSchema = z.object({
   id: itemIdSchema,
   name: z.string(),
@@ -91,6 +107,8 @@ export const recommendSetupOutputSchema = z.object({
   catalogVersion,
   items: z.array(recommendedItemSchema),
   excluded: z.array(excludedItemSchema),
+  /** Hook recipes that fit the project's tooling; each needs its own approval. */
+  hooks: z.array(hookProposalSchema),
   model: z.object({
     model: z.string(),
     effort: z.enum(['low', 'medium', 'high', 'xhigh', 'max']),
@@ -131,6 +149,8 @@ export const backupSetupOutputSchema = z.object({
 export const generateConfigInputSchema = z.object({
   path: projectPath,
   approvedIds: z.array(itemIdSchema),
+  /** Approved hook recipes from recommend_setup. */
+  hookIds: z.array(hookIdSchema).default([]),
 });
 export const generatedFileSchema = z.object({
   path: relativePath,
@@ -140,9 +160,13 @@ export const generatedFileSchema = z.object({
 });
 export const generateConfigOutputSchema = z.object({
   catalogVersion,
+  /** Detected Claude Code version the config was generated for (NFR-9). */
+  claudeCodeVersion: z.string(),
   files: z.array(generatedFileSchema),
   requiredEnvVars: z.array(envVarNameSchema),
   installCommands: z.array(z.string()),
+  /** Approved hooks not added, with the reason (already installed, an existing hook does it). */
+  skippedHooks: z.array(z.object({ id: hookIdSchema, reason: z.string() })),
 });
 
 // verify_setup

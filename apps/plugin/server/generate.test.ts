@@ -1,4 +1,4 @@
-import { cp, mkdtemp, readFile } from 'node:fs/promises';
+import { cp, mkdir, mkdtemp, readFile, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -77,6 +77,46 @@ describe('generateConfig', () => {
       command: 'node',
       args: ['./tools/my-server.js'],
     });
+  });
+
+  it('adds approved hook recipes to settings.json as a diff, keeping existing hooks', async () => {
+    const root = await copyFixture('next-fresh');
+    const userHooks = {
+      PostToolUse: [{ matcher: 'Bash', hooks: [{ type: 'command', command: 'echo mine' }] }],
+    };
+    await mkdir(join(root, '.claude'));
+    await writeFile(
+      join(root, '.claude', 'settings.json'),
+      `${JSON.stringify({ model: 'sonnet', hooks: userHooks }, null, 2)}\n`,
+    );
+    const r = await generateConfig(root, snapshot, [], ['format-on-edit', 'typecheck-on-stop']);
+    const settings = r.files.find((f) => f.path === '.claude/settings.json')!;
+    expect(settings.action).toBe('update');
+    expect(settings.diff).toMatch(/^\+.*# setup-agent:format-on-edit/m);
+    const parsed = JSON.parse(settings.content) as {
+      model: string;
+      hooks: Record<string, unknown[]>;
+    };
+    expect(parsed.model).toBe('sonnet');
+    expect(parsed.hooks['PostToolUse']![0]).toEqual(userHooks.PostToolUse[0]);
+    expect(parsed.hooks['PostToolUse']).toHaveLength(2);
+    expect(parsed.hooks['Stop']).toHaveLength(1);
+    expect(r.skippedHooks).toEqual([]);
+    expect(r.files.map((f) => f.path)).toEqual(['CLAUDE.md', '.claude/settings.json']);
+  });
+
+  it('reports hooks it skipped and refuses hooks that do not fit the project', async () => {
+    const root = await copyFixture('next-fresh');
+    const first = await generateConfig(root, snapshot, [], ['lint-on-edit']);
+    await mkdir(join(root, '.claude'));
+    await writeFile(join(root, '.claude', 'settings.json'), first.files[1]!.content);
+    const again = await generateConfig(root, snapshot, [], ['lint-on-edit']);
+    expect(again.skippedHooks).toEqual([{ id: 'lint-on-edit', reason: 'already installed' }]);
+    expect(again.files[1]!.action).toBe('unchanged');
+    const bare = await copyFixture('next-existing');
+    await expect(generateConfig(bare, snapshot, [], ['format-on-edit'])).rejects.toThrow(
+      /doesn't fit this project's tooling: format-on-edit/,
+    );
   });
 
   it('refuses unknown or non-recommended items', async () => {

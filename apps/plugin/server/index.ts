@@ -20,6 +20,7 @@ import {
   verifySetupOutputSchema,
 } from '@cc-setup-agent/shared';
 import { analyzeProject } from './analyze.js';
+import { assertSupportedVersion, detectClaudeCodeVersion } from './cc-version.js';
 import { backupSetup, rollbackSetup } from './backup.js';
 import {
   loadCatalog,
@@ -67,8 +68,11 @@ async function requireCatalog(settings: PluginSettings): Promise<LoadedCatalog> 
 export function createServer(
   settings: PluginSettings = settingsFromEnv(),
   env: Record<string, string | undefined> = process.env,
+  deps: { claudeCodeVersion?: () => Promise<string | null> } = {},
 ): McpServer {
   const server = new McpServer({ name: SERVER_NAME, version: SERVER_VERSION });
+  const claudeCodeVersion =
+    deps.claudeCodeVersion ?? (() => detectClaudeCodeVersion(server.server.getClientVersion()));
   const tool = <S extends z.ZodObject>(
     name: string,
     description: string,
@@ -165,12 +169,15 @@ export function createServer(
     'generate_config',
     'File contents and diffs for approved items; writes nothing.',
     generateConfigInputSchema,
-    async ({ path, approvedIds }) => {
+    async ({ path, approvedIds, hookIds }) => {
       const root = await projectRoot(path);
+      // NFR-9: refuse to generate config for unsupported Claude Code versions.
+      const version = assertSupportedVersion(await claudeCodeVersion());
       const { snapshot } = await requireCatalog(settings);
       return ok(generateConfigOutputSchema, {
         catalogVersion: snapshot.version,
-        ...(await generateConfig(root, snapshot, approvedIds)),
+        claudeCodeVersion: version,
+        ...(await generateConfig(root, snapshot, approvedIds, hookIds)),
       });
     },
   );

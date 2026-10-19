@@ -22,7 +22,7 @@ Allow about 30 minutes. Commands starting with `!` can be typed into Claude Code
 8. Start Claude Code from that terminal, anywhere, and run:
    - `/plugin marketplace add <repo>`
    - `/plugin install setup-agent@cc-setup-agent`
-9. Quit and restart Claude Code. Run `/plugin` and confirm `setup-agent` is installed and enabled. Run `/mcp` and confirm the `setup-agent` server is connected.
+9. Quit and restart Claude Code. Run `/plugin` and confirm `setup-agent` is installed and enabled. Run `/mcp` and confirm the `setup-agent` server is connected. Check `claude --version`: setup-agent writes config only for Claude Code 2.0.x and 2.1.x (NFR-9); on any other version `generate_config` refuses with a message and nothing is written.
 
 ## C. Fresh Next.js app and `/setup`
 
@@ -39,12 +39,15 @@ Allow about 30 minutes. Commands starting with `!` can be typed into Claude Code
     - it calls `sync_catalog` and reports the catalog version (no "signature is invalid" warning);
     - it reports what it detected (Next.js app router, pnpm, TypeScript, Tailwind);
     - it asks at most five questions;
-    - the plan lists each item with reason, scorecard summary, trade-off and confidence, plus excluded items, context overhead and a model suggestion;
-    - you can keep or drop items one by one (drop at least one);
+    - the plan lists each item with reason, scorecard summary, trade-off and confidence, plus excluded items, context overhead and a model suggestion with a cost note (answer budget sensitivity `low` and give an architecture-heavy goal such as "re-architect the data layer" to see an Opus suggestion; any other answers give Sonnet);
+    - it proposes hooks for the detected tooling: a fresh `create-next-app` project has ESLint and TypeScript but no Prettier, so expect `lint-on-edit` and `typecheck-on-stop` (and `format-on-edit` only if you add Prettier);
+    - you can keep or drop items and hooks one by one (drop at least one item; keep at least one hook);
     - it calls `backup_setup` (note the backup id), shows a diff for each file, and Claude Code asks permission before each write;
     - it lists required environment variables by name only and never asks for values;
     - it runs `verify_setup` and reports pass or fail per item with fixes.
-13. Look at the result: `CLAUDE.md` contains a block between `<!-- setup-agent:start -->` and `<!-- setup-agent:end -->`; `.mcp.json` has pinned versions (`pkg@1.2.3`, never `latest`) and `${VAR}` placeholders only; `.claude/settings.json` lists the servers in `enabledMcpjsonServers`.
+13. Look at the result: `CLAUDE.md` contains a block between `<!-- setup-agent:start -->` and `<!-- setup-agent:end -->`; `.mcp.json` has pinned versions (`pkg@1.2.3`, never `latest`) and `${VAR}` placeholders only; `.claude/settings.json` lists the servers in `enabledMcpjsonServers` and has a `hooks` section whose commands end in `# setup-agent:<hook id>`.
+    - Hook check: ask Claude to add an unused variable to `app/page.tsx`. The lint hook should report the ESLint error back to Claude, which then fixes it. Run `/hooks` to see the installed hooks.
+    - Optional, existing-hooks check: before `/setup`, put your own hook in `.claude/settings.json` (e.g. a `PreToolUse` hook `echo mine`); after `/setup` it must still be there, unchanged.
 14. Optional, broken-server check: edit `.mcp.json`, change one server's version to `0.0.0-does-not-exist`, ask Claude to "run verify_setup" and confirm it reports that server as failing with a fix. Undo the edit afterwards.
 
 ## D. Rollback
@@ -59,4 +62,4 @@ Allow about 30 minutes. Commands starting with `!` can be typed into Claude Code
 
 ## E. Report back
 
-Tell me pass or fail for steps 9, 12, 13, 14 (if run) and 16, and paste any error text. If something fails, the plugin's log is on Claude Code's MCP stderr (`/mcp` → setup-agent → logs).
+Tell me pass or fail for steps 9, 12, 13 (including the hook check), 14 (if run) and 16, and paste any error text. If something fails, the plugin's log is on Claude Code's MCP stderr (`/mcp` → setup-agent → logs).

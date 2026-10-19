@@ -1,7 +1,7 @@
 import { dirname, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { describe, expect, it } from 'vitest';
-import { scanText, scanTree } from './forbidden-models.js';
+import { isExempt, scanText, scanTree, USER_MODEL_RULES_FILE } from './forbidden-models.js';
 
 describe('forbidden model scan', () => {
   it.each([
@@ -23,5 +23,20 @@ describe('forbidden model scan', () => {
   it('finds nothing in this repository', () => {
     const root = resolve(dirname(fileURLToPath(import.meta.url)), '..');
     expect(scanTree(root)).toEqual([]);
+  });
+
+  it('exempts exactly the plugin model-rules file and test files', () => {
+    expect(isExempt(USER_MODEL_RULES_FILE)).toBe(true);
+    expect(isExempt('apps/plugin/server/model-rules.test.ts')).toBe(true);
+    for (const rel of [
+      'apps/plugin/server/recommend.ts',
+      'apps/plugin/server/model-rules.js',
+      'apps/plugin/model-rules.ts',
+      'apps/evals/src/model-rules.ts',
+      'packages/core/src/llm.ts',
+      'packages/shared/src/config.ts',
+      '.env.example',
+    ])
+      expect(isExempt(rel)).toBe(false);
   });
 });

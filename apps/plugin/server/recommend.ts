@@ -6,6 +6,8 @@ import type {
   Snapshot,
   SnapshotItem,
 } from '@cc-setup-agent/shared';
+import { hookProposals } from './hooks.js';
+import { modelRecommendation } from './model-rules.js';
 
 /** Stable presentation order for categories. */
 export const CATEGORY_ORDER: readonly Category[] = [
@@ -174,6 +176,17 @@ function matchesAffinity(item: SnapshotItem, affinity: string[]): boolean {
   return affinity.some((a) => hay.includes(a));
 }
 
+function securityFlagged(item: SnapshotItem): boolean {
+  return item.scorecard.securityFlags > 0 || item.scorecard.gates.gate3_security?.result === 'fail';
+}
+
+/** Why a vendor-matching item may not use the vendor preference, or null when it may. */
+function affinityBlocker(item: SnapshotItem): string | null {
+  if (securityFlagged(item)) return 'it has security flags';
+  if (item.scorecard.confidence === 'low') return 'its confidence is low';
+  return null;
+}
+
 function scorecardSummary(item: SnapshotItem): string {
   const g = item.scorecard.gates;
   const gate = (label: string, r: { result: string } | undefined) =>
@@ -198,30 +211,6 @@ function tradeoff(item: SnapshotItem): string {
   if (item.status === 'recommended_provisional')
     parts.push('provisional: too new to judge long-term maintenance');
   return parts.length > 0 ? `${parts.join('; ')}.` : 'No notable trade-offs.';
-}
-
-/** Model and effort rules. Recommends Sonnet or Haiku only (project rule: no Opus in product code). */
-export function modelRecommendation(answers: SetupAnswers): RecommendSetupOutput['model'] {
-  if (answers.budgetSensitivity === 'high') {
-    return {
-      model: 'sonnet',
-      effort: 'medium',
-      costNote: 'Good quality at moderate cost; use haiku for quick edits to save more.',
-    };
-  }
-  if (answers.budgetSensitivity === 'low') {
-    return {
-      model: 'sonnet',
-      effort: 'high',
-      costNote:
-        'Higher effort spends more tokens per task for more thorough work; a larger model is available if you need it.',
-    };
-  }
-  return {
-    model: 'sonnet',
-    effort: 'medium',
-    costNote: 'Balanced default for everyday Next.js work.',
-  };
 }
 
 /**
@@ -262,15 +251,26 @@ export function recommendSetup(
       continue;
     }
     if (inCategory.length === 0) continue;
-    const preferred =
+    // Matching vendor wins within a category, but only among unflagged items with at least
+    // medium confidence; otherwise normal ranking applies and the plan says why.
+    const matching =
       need.affinity.length > 0 ? inCategory.filter((i) => matchesAffinity(i, need.affinity)) : [];
+    const preferred = matching.filter((i) => affinityBlocker(i) === null);
+    const skipped = matching.filter((i) => affinityBlocker(i) !== null);
     const pool = preferred.length > 0 ? preferred : inCategory;
     const winner = pool[0]!;
+    const skippedNote =
+      preferred.length === 0 && skipped.length > 0
+        ? ` ${skipped.map((i) => `${i.name} matches your stack but ${affinityBlocker(i)}`).join('; ')}, so normal ranking applies.`
+        : '';
     items.push({
       id: winner.id,
       name: winner.name,
       category,
-      reason: preferred.length > 0 ? `${need.reason} Matches your stack.` : need.reason,
+      reason:
+        preferred.length > 0
+          ? `${need.reason} Matches your stack.`
+          : `${need.reason}${skippedNote}`,
       scorecardSummary: scorecardSummary(winner),
       tradeoff: tradeoff(winner),
       confidence: nextjs ? winner.scorecard.confidence : 'low',
@@ -278,10 +278,15 @@ export function recommendSetup(
     });
     for (const other of inCategory) {
       if (other.id === winner.id) continue;
+      const blocker = affinityBlocker(other);
       const reason =
         preferred.length > 0 && !preferred.includes(other)
-          ? `Overlaps with ${winner.name}, which matches the libraries you use.`
-          : `Overlaps with ${winner.name} (${category.replace('_', ' ')}); ranked lower on evidence, confidence or context cost.`;
+          ? matching.includes(other) && blocker
+            ? `Matches your stack, but ${blocker}; ${winner.name} was chosen instead.`
+            : `Overlaps with ${winner.name}, which matches the libraries you use.`
+          : matching.includes(other) && blocker
+            ? `Matches your stack, but ${blocker}, so it gets no vendor preference; ${winner.name} ranked higher.`
+            : `Overlaps with ${winner.name} (${category.replace('_', ' ')}); ranked lower on evidence, confidence or context cost.`;
       excluded.push({ id: other.id, name: other.name, reason });
     }
   }
@@ -290,6 +295,7 @@ export function recommendSetup(
     catalogVersion: snapshot.version,
     items,
     excluded: excluded.sort((a, b) => a.id.localeCompare(b.id)),
+    hooks: hookProposals(profile),
     model: modelRecommendation(answers),
     contextOverhead: {
       totalTokens,

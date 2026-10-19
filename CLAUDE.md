@@ -38,7 +38,7 @@ Every other choice: decide, record it in `docs/DECISIONS.md`, keep going. Never 
 - `pnpm triage` — local triage UI on TRIAGE_HOST:TRIAGE_PORT (needs TRIAGE_ADMIN_TOKEN)
 - `pnpm evals run` — real eval runs (costs money; only when the owner asks)
 - `pnpm db:health` — check the database connection
-- `pnpm check:models` — fail if any file names an Opus model ID
+- `pnpm check:models` — fail if any file names an Opus model ID (only exception: `apps/plugin/server/model-rules.ts`)
 - `pnpm keys:generate --out <dir outside repo>` — Ed25519 snapshot signing keys
 - `pnpm plugin:build` — bundle the plugin's MCP server to `apps/plugin/dist/server.js`
 - `pnpm ci:status [--sha <commit>] [--logs]` — GitHub Actions result for a commit (uses GITHUB_TOKEN)
@@ -47,7 +47,8 @@ Every other choice: decide, record it in `docs/DECISIONS.md`, keep going. Never 
 
 ## Hard rules
 
-- **Product API models:** the product's own Anthropic API calls (classification, evals) use only Haiku and Sonnet, via `MODEL_FAST` / `MODEL_STRONG` config. Never Opus in product code or config. This does not restrict the model running this session.
+- **Product API models:** the product's own Anthropic API calls (classification, evals) use only Haiku and Sonnet, via `MODEL_FAST` / `MODEL_STRONG` config. Never Opus in product code or config; the LLM client and config loader refuse it, and eval runs map every Claude Code model alias to Haiku/Sonnet. This does not restrict the model running this session.
+- **Model advice to users is different:** the plugin's model recommendation to a user may suggest Opus (complex or architecture-heavy work, budget answer allows it, always with a cost note). Those rules live only in `apps/plugin/server/model-rules.ts`, the single file `pnpm check:models` exempts. Don't name Opus anywhere else.
 - **Budget:** every Anthropic API call goes through the budget ledger; USD 20/week hard cap.
 - **No invented catalog data:** tool names, URLs, versions and metrics come from real API responses or the owner. Test fixtures use obviously fake names under `test/fixtures/`.
 - **Never set `recommended` in code.** Only a human action in triage does that, via `transitionStatus`.
