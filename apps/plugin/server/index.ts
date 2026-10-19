@@ -36,7 +36,7 @@ import { log } from './log.js';
 import { recommendSetup } from './recommend.js';
 import { settingsFromEnv, type PluginSettings } from './settings.js';
 import { blockedWarnings, checkUpdates } from './updates.js';
-import { verifySetup } from './verify.js';
+import { defaultPackageResolver, verifySetup } from './verify.js';
 
 export const SERVER_NAME = 'setup-agent';
 export const SERVER_VERSION = '0.1.0';
@@ -189,7 +189,12 @@ export function createServer(
     async ({ path }) => {
       const root = await projectRoot(path);
       const catalog = await loadCatalog(settings).catch(() => null);
-      const results = await verifySetup(root, env, settings.verifyTimeoutMs);
+      const results = await verifySetup(
+        root,
+        env,
+        settings.verifyTimeoutMs,
+        defaultPackageResolver(settings.pypiUrl, settings.verifyTimeoutMs),
+      );
       return ok(verifySetupOutputSchema, {
         catalogVersion: catalog?.snapshot.version ?? NO_CATALOG,
         ok: results.every((r) => r.status === 'pass'),
@@ -214,14 +219,14 @@ export function createServer(
 
   tool(
     'rollback_setup',
-    'Restore setup files from the latest (or given) backup.',
+    'Restore setup files from the latest (or given) backup; dryRun previews.',
     rollbackSetupInputSchema,
-    async ({ path, backupId }) => {
+    async ({ path, backupId, dryRun }) => {
       const root = await projectRoot(path);
       const catalog = await loadCatalog(settings).catch(() => null);
       return ok(rollbackSetupOutputSchema, {
         catalogVersion: catalog?.snapshot.version ?? NO_CATALOG,
-        ...(await rollbackSetup(root, backupId)),
+        ...(await rollbackSetup(root, backupId, dryRun)),
       });
     },
   );

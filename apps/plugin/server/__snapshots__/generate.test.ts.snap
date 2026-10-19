@@ -57,13 +57,20 @@ exports[`generateConfig > creates config for a fresh project (snapshot of genera
 "<!-- setup-agent:start -->
 ## Claude Code setup (managed by setup-agent, catalog 2026.10.19-1)
 
-Tools chosen for this project:
-- **example-docs-mcp** (docs): https://github.com/example-org/example-docs-mcp
-- **example-git-mcp** (git_github): https://github.com/example-org/example-git-mcp
-- **example-review-plugin** (code_review): https://github.com/example-org/example-plugins/tree/main/plugins/review
-- **example-supabase-mcp** (database): https://github.com/example-org/example-supabase-mcp
-- **example-vercel-mcp** (deploy): https://github.com/example-org/example-vercel-mcp
-- **example-vitest-skill** (unit_testing): https://github.com/example-org/example-vitest-skill
+### Commands
+
+- \`pnpm dev\`: next dev
+- \`pnpm lint\`: eslint
+- \`pnpm typecheck\`: tsc --noEmit
+
+### Tools
+
+- **example-docs-mcp** (MCP server): Use it before writing code against a framework or library API, to check the current docs. Serves current docs for example libraries.
+- **example-git-mcp** (MCP server): Use it for pull requests, issues and repository work.
+- **example-review-plugin** (plugin): Use it to review changes before committing them.
+- **example-supabase-mcp** (MCP server): Use it for schema, query and migration work.
+- **example-vercel-mcp** (MCP server): Use it for deployment, hosting and environment configuration.
+- **example-vitest-skill** (skill): Use it when writing or running unit and component tests.
 
 Environment variables these tools need (set them in your shell, never in this file): EXAMPLE_GIT_TOKEN, EXAMPLE_SUPABASE_TOKEN.
 

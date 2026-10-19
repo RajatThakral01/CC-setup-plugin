@@ -65,6 +65,51 @@ describe('backup and rollback', () => {
     expect(await snapshotTree(root)).toEqual(before);
   });
 
+  it('reports plugins installed at project scope since the backup, with uninstall commands', async () => {
+    const root = await copyFixture('next-fresh');
+    await mkdir(join(root, '.claude'), { recursive: true });
+    const original = JSON.stringify({ enabledPlugins: { 'example-old@example-mk': true } });
+    await writeFile(join(root, '.claude', 'settings.json'), original);
+    await backupSetup(root, '2026.10.19-1');
+    // What `claude plugin install … --scope project` records in the project settings:
+    await writeFile(
+      join(root, '.claude', 'settings.json'),
+      JSON.stringify({
+        enabledPlugins: {
+          'example-old@example-mk': true,
+          'example-review@example-mk': true,
+          'example-off@example-mk': false,
+        },
+        extraKnownMarketplaces: {
+          'example-mk': { source: { source: 'github', repo: 'example-org/example-mk' } },
+        },
+      }),
+    );
+    const preview = await rollbackSetup(root, undefined, true);
+    expect(preview).toMatchObject({
+      dryRun: true,
+      restored: ['.claude/settings.json'],
+      plugins: [
+        {
+          plugin: 'example-review@example-mk',
+          uninstallCommand: 'claude plugin uninstall example-review@example-mk --scope project',
+        },
+      ],
+      marketplaces: [
+        {
+          name: 'example-mk',
+          removeCommand: 'claude plugin marketplace remove example-mk --scope project',
+        },
+      ],
+    });
+    // A dry run changes nothing.
+    expect(await readFile(join(root, '.claude', 'settings.json'), 'utf8')).toContain(
+      'example-review',
+    );
+    await rollbackSetup(root);
+    expect(await readFile(join(root, '.claude', 'settings.json'), 'utf8')).toBe(original);
+  });
+
   it('fails clearly without backups or with an unknown id', async () => {
     const root = await copyFixture('next-fresh');
     await expect(rollbackSetup(root)).rejects.toThrow(/no backups/);

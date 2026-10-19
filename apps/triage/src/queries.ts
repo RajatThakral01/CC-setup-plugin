@@ -24,6 +24,8 @@ export interface QueueFilter {
   scope: Scope;
   category?: string;
   q?: string;
+  /** Only items whose kind or category a reclassification changed (awaiting owner review). */
+  review?: boolean;
 }
 
 export type ItemRow = typeof catalogItems.$inferSelect;
@@ -83,6 +85,7 @@ export async function listQueue(db: Db, filter: QueueFilter): Promise<QueueEntry
     filter.scope === 'in' ? sql`not (${MVP_STACK} = any(${catalogItems.outOfScope}))` : undefined,
     filter.scope === 'out' ? sql`${MVP_STACK} = any(${catalogItems.outOfScope})` : undefined,
     filter.category ? sql`${catalogItems.category}::text = ${filter.category}` : undefined,
+    filter.review ? sql`${catalogItems.classificationReview} is not null` : undefined,
     filter.q
       ? sql`(${catalogItems.id} ilike ${`%${filter.q}%`} or ${catalogItems.name} ilike ${`%${filter.q}%`})`
       : undefined,
@@ -222,4 +225,13 @@ export async function listChanges(db: Db, flag?: string) {
       desc(claudeCodeChanges.version),
     )
     .limit(200);
+}
+
+/** Items awaiting review after a reclassification changed their kind or category. */
+export async function countNeedingReview(db: Db): Promise<number> {
+  const [row] = await db
+    .select({ n: sql<number>`count(*)::int` })
+    .from(catalogItems)
+    .where(sql`${catalogItems.classificationReview} is not null`);
+  return row?.n ?? 0;
 }

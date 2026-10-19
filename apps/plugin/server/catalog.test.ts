@@ -22,7 +22,7 @@ describe('syncCatalog', () => {
     const settings = await settingsFor(c.url, c.publicKeyPem);
     const r = await syncCatalog(settings, now);
     expect(r).toMatchObject({ updated: true, catalog: { ageDays: 1, stale: false } });
-    expect(r.catalog?.snapshot.items.length).toBe(13);
+    expect(r.catalog?.snapshot.items.length).toBe(16);
     expect((await syncCatalog(settings, now)).updated).toBe(false);
     expect((await loadCatalog(settings, now))?.snapshot.version).toBe('2026.10.19-1');
   });

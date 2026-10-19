@@ -6,10 +6,11 @@ import { AppError } from '@cc-setup-agent/core';
 import {
   InvalidTransitionError,
   ItemNotFoundError,
+  setClassificationFields,
   transitionStatus,
   type Db,
 } from '@cc-setup-agent/db';
-import { CATEGORIES, statusSchema } from '@cc-setup-agent/shared';
+import { CATEGORIES, categorySchema, kindSchema, statusSchema } from '@cc-setup-agent/shared';
 import {
   csrfToken,
   MIN_TOKEN_LENGTH,
@@ -21,6 +22,7 @@ import {
 } from './auth.js';
 import {
   countByScope,
+  countNeedingReview,
   getItemDetail,
   listChanges,
   listQueue,
@@ -44,6 +46,20 @@ const queueQuerySchema = z.object({
   scope: z.enum(['in', 'out', 'all']).catch('in'),
   category: z.enum(CATEGORIES).optional().catch(undefined),
   q: z.string().max(100).optional().catch(undefined),
+  review: z.literal('1').optional().catch(undefined),
+});
+
+/** Owner edit of kind and category; `none` clears the category. */
+const classificationFormSchema = z.object({
+  kind: kindSchema,
+  category: z.union([categorySchema, z.literal('none')]),
+  /** Comma-separated; empty means vendor-neutral. */
+  technologies: z
+    .string()
+    .max(300)
+    .regex(/^[A-Za-z0-9.+\-, ]*$/, 'technologies: letters, digits and . + - only')
+    .default(''),
+  reason: z.string().trim().min(3, 'a reason is required').max(2000),
 });
 
 const statusFormSchema = z.object({
@@ -123,12 +139,16 @@ export function createApp(deps: TriageDeps): Hono<Env> {
       scope: parsed.scope,
       ...(parsed.category ? { category: parsed.category } : {}),
       ...(parsed.q ? { q: parsed.q } : {}),
+      ...(parsed.review ? { review: true } : {}),
     };
-    const [entries, counts] = await Promise.all([
+    const [entries, counts, needingReview] = await Promise.all([
       listQueue(deps.db, filter),
       countByScope(deps.db, filter.status),
+      countNeedingReview(deps.db),
     ]);
-    return c.html(queuePage(entries, filter, counts, c.get('reviewer'), c.get('csrf')));
+    return c.html(
+      queuePage(entries, filter, counts, c.get('reviewer'), c.get('csrf'), needingReview),
+    );
   });
 
   const renderItem = async (
@@ -148,7 +168,11 @@ export function createApp(deps: TriageDeps): Hono<Env> {
       c,
       c.req.param('id'),
       200,
-      saved ? { kind: 'notice', text: `Status changed to ${saved}.` } : undefined,
+      saved === 'classification'
+        ? { kind: 'notice', text: 'Kind, category and technologies saved as owner-set.' }
+        : saved
+          ? { kind: 'notice', text: `Status changed to ${saved}.` }
+          : undefined,
     );
   });
 
@@ -178,6 +202,35 @@ export function createApp(deps: TriageDeps): Hono<Env> {
     }
     deps.logger.info({ id, to, reviewer: c.get('reviewer') }, 'status changed in triage');
     return c.redirect(`/items/${encodeURIComponent(id)}?saved=${encodeURIComponent(to)}`, 303);
+  });
+
+  app.post('/items/:id/classification', async (c) => {
+    const id = c.req.param('id');
+    const parsed = classificationFormSchema.safeParse(await c.req.parseBody());
+    if (!parsed.success)
+      return renderItem(c, id, 400, {
+        kind: 'error',
+        text: parsed.error.issues.map((i) => i.message).join('; '),
+      });
+    const { kind, category, technologies, reason } = parsed.data;
+    try {
+      await setClassificationFields(
+        deps.db,
+        id,
+        {
+          kind,
+          category: category === 'none' ? null : category,
+          technologies: technologies.split(','),
+        },
+        `human:${c.get('reviewer')}`,
+        reason,
+      );
+    } catch (error) {
+      if (error instanceof ItemNotFoundError) return c.text('Not found', 404);
+      throw error;
+    }
+    deps.logger.info({ id, kind, category, reviewer: c.get('reviewer') }, 'classification set');
+    return c.redirect(`/items/${encodeURIComponent(id)}?saved=classification`, 303);
   });
 
   app.post('/items/:id/scope', async (c) => {

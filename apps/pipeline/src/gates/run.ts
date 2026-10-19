@@ -1,5 +1,12 @@
 import { tmpdir } from 'node:os';
 import { z } from 'zod';
+import {
+  componentPaths,
+  estimateComponents,
+  firstPublished,
+  type ComponentEstimate,
+  type ComponentFile,
+} from './components.js';
 import type { HttpClient, Logger } from '@cc-setup-agent/core';
 import {
   and,
@@ -108,7 +115,13 @@ export async function gatherFacts(
   deps: GateDeps,
   item: Item,
   now: Date,
-): Promise<GateFacts & { toolsFromProbe: ToolDefinition[] }> {
+): Promise<
+  GateFacts & {
+    toolsFromProbe: ToolDefinition[];
+    componentEstimate: ComponentEstimate;
+    firstPublishedAt: Date | null;
+  }
+> {
   const ref = parseSourceUrl(item.sourceUrl);
   const registry = await linkedPayload<RegistryPayload>(deps.db, item.id, 'mcp_registry');
   const marketplace = await linkedPayload<MarketplacePayload>(deps.db, item.id, 'marketplace');
@@ -185,6 +198,8 @@ export async function gatherFacts(
     frontmatterLicense: null,
   };
   let skillText: string | undefined;
+  let skillPath: string | undefined;
+  let inScope: string[] = [];
   if (
     repo &&
     health?.defaultBranch &&
@@ -195,8 +210,8 @@ export async function gatherFacts(
       .catch(() => null);
     if (tree && !tree.truncated) {
       const prefix = folder ? `${folder.path}/` : '';
-      const inScope = tree.paths.filter((p) => p.startsWith(prefix));
-      const skillPath = inScope.find((p) => /(^|\/)skill\.md$/i.test(p));
+      inScope = tree.paths.filter((p) => p.startsWith(prefix));
+      skillPath = inScope.find((p) => /(^|\/)skill\.md$/i.test(p));
       structure = {
         checked: true,
         hasSkillMd: Boolean(skillPath),
@@ -213,6 +228,29 @@ export async function gatherFacts(
           skillPath,
           folder?.ref ?? health.defaultBranch,
         );
+    }
+  }
+
+  // Skills, commands and agents in the tree: listed for classification and context cost.
+  const componentFiles: ComponentFile[] = [];
+  let bundledServers = 0;
+  if (repo && health?.defaultBranch && (item.kind === 'skill' || item.kind === 'plugin')) {
+    const treeRef = folder?.ref ?? health.defaultBranch;
+    for (const c of componentPaths(inScope)) {
+      const text =
+        c.path === skillPath && skillText
+          ? skillText
+          : await deps.github.getFileText(repo.fullName, c.path, treeRef).catch(() => undefined);
+      if (text) componentFiles.push({ ...c, text });
+    }
+    for (const p of inScope.filter((x) => /(^|\/)\.mcp\.json$/.test(x)).slice(0, 5)) {
+      const text = await deps.github.getFileText(repo.fullName, p, treeRef).catch(() => undefined);
+      try {
+        const servers = text ? (JSON.parse(text) as { mcpServers?: unknown }).mcpServers : null;
+        if (servers && typeof servers === 'object') bundledServers += Object.keys(servers).length;
+      } catch {
+        // An unparsable .mcp.json in a third-party repo is ignored here; gate 0 doesn't need it.
+      }
     }
   }
 
@@ -322,6 +360,11 @@ export async function gatherFacts(
     scanned: { tools: start.tools.length > 0, text: Boolean(skillText), packages: osv.checked },
     now,
     toolsFromProbe: start.tools,
+    componentEstimate: estimateComponents(componentFiles, start.tools, bundledServers),
+    firstPublishedAt: firstPublished(
+      repo?.createdAt,
+      (npmPackument ?? install.npm?.packument)?.time?.['created'],
+    ),
   };
 }
 
@@ -435,6 +478,8 @@ export async function gateItem(
         provenance: g1.provenance,
         install: facts.install.install,
         lastChecked: now,
+        components: { ...facts.componentEstimate.components, collectedAt: now.toISOString() },
+        ...(facts.firstPublishedAt ? { firstPublishedAt: facts.firstPublishedAt } : {}),
         ...(tools.length > 0
           ? {
               capabilities: inferCapabilities(tools, item.kind),
@@ -443,6 +488,12 @@ export async function gateItem(
           : item.kind === 'hook_recipe'
             ? { capabilities: ['shell'] }
             : {}),
+        ...(tools.length === 0 && facts.componentEstimate.alwaysTokens !== null
+          ? {
+              contextOverheadTokens: facts.componentEstimate.alwaysTokens,
+              contextOnUseTokens: facts.componentEstimate.onUseTokens,
+            }
+          : {}),
       })
       .where(eq(catalogItems.id, item.id));
     if (facts.repo) {

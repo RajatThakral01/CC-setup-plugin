@@ -85,6 +85,7 @@ describe('MCP tool schemas', () => {
       claudeCodeVersion: '2.1.303',
       requiredEnvVars: [],
       installCommands: [],
+      plugins: [],
       skippedHooks: [],
     };
     const file = { action: 'create', content: '', diff: '' };

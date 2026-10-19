@@ -35,6 +35,7 @@ const good = {
   kind: 'mcp_server',
   category: 'browser_testing',
   stacks: ['nextjs', 'any'],
+  technologies: [],
   summary: 'Drives a browser for end-to-end tests.',
   provenance_guess: 'official_vendor',
   relevant: true,
@@ -197,6 +198,103 @@ describe('classifyPending', () => {
   });
 });
 
+describe('re-classifying everything (--all)', () => {
+  it('replaces seed hints, keeps owner-set fields, skips rejected items, and reports changes', async () => {
+    await addItem('example-chat-plugin', 'https://github.com/example-org/chat', {
+      kind: 'plugin',
+      category: 'git_github',
+    });
+    await addItem('example-owner-set', 'https://github.com/example-org/owned', {
+      kind: 'plugin',
+      category: 'code_review',
+      categorySetBy: 'human:owner',
+      technologies: [],
+      technologiesSetBy: 'human:owner',
+    });
+    await addItem('example-gone', 'https://github.com/example-org/gone', { category: 'docs' });
+    await t.db
+      .update(catalogItems)
+      .set({ status: 'rejected' })
+      .where(eq(catalogItems.id, 'example-gone'));
+    const chat = JSON.stringify({
+      ...good,
+      kind: 'plugin',
+      category: null,
+      technologies: ['Discord'],
+    });
+    const { deps, create } = setup([chat, chat]);
+    const report = await classifyPending(deps, { all: true });
+    expect(create).toHaveBeenCalledTimes(2);
+    expect(report.changes).toEqual([
+      {
+        id: 'example-chat-plugin',
+        status: 'candidate',
+        from: { kind: 'plugin', category: 'git_github' },
+        to: { kind: 'plugin', category: null },
+      },
+    ]);
+    const rows = Object.fromEntries((await t.db.select().from(catalogItems)).map((r) => [r.id, r]));
+    expect(rows['example-chat-plugin']).toMatchObject({
+      category: null,
+      technologies: ['discord'],
+      classificationReview: { previousKind: 'plugin', previousCategory: 'git_github' },
+    });
+    // Owner-set category is never overwritten by reclassification.
+    expect(rows['example-owner-set']).toMatchObject({
+      category: 'code_review',
+      technologies: [],
+      classificationReview: null,
+    });
+    expect(rows['example-gone']?.classificationState).toBe('pending');
+  });
+
+  it('accepts more than five technologies, keeps eight, and can target single items', async () => {
+    await addItem('example-many', 'https://github.com/example-org/many');
+    await addItem('example-other', 'https://github.com/example-org/other');
+    const many = JSON.stringify({
+      ...good,
+      technologies: ['a', 'b', 'c', 'd', 'e', 'f', 'g', 'h', 'i', 'j'],
+    });
+    const { deps, create } = setup([many]);
+    const report = await classifyPending(deps, { all: true, itemIds: ['example-many'] });
+    expect(create).toHaveBeenCalledTimes(1);
+    expect(report.needsManual).toBe(0);
+    const [row] = await t.db.select().from(catalogItems).where(eq(catalogItems.id, 'example-many'));
+    expect(row?.technologies).toEqual(['a', 'b', 'c', 'd', 'e', 'f', 'g', 'h']);
+  });
+
+  it('never overwrites an owner-set category in a normal run either', async () => {
+    await addItem('example-owned', 'https://www.npmjs.com/package/@example/pkg', {
+      categorySetBy: 'human:owner',
+    });
+    const { deps } = setup([]);
+    await classifyPending(deps);
+    const [row] = await t.db.select().from(catalogItems);
+    expect(row?.category).toBeNull();
+    expect(row?.kind).toBe('mcp_server');
+  });
+
+  it('gives the classifier the README and the component list', async () => {
+    await addItem('example-mcp', 'https://github.com/example-org/example-mcp', {
+      components: {
+        tools: [{ name: 'send_message', description: 'Send a message to a chat channel' }],
+        skills: [],
+        commands: [{ name: 'access', description: 'Manage the allowlist' }],
+        agents: [],
+        mcpServers: 0,
+        collectedAt: '2026-10-19T00:00:00.000Z',
+      },
+    });
+    const { deps, create } = setup([]);
+    await classifyPending(deps);
+    const body = (create.mock.calls[0] as unknown as [{ messages: Array<{ content: string }> }])[0];
+    const msg = body.messages[0]!.content;
+    expect(msg).toContain('mcp_tools:\n- send_message: Send a message to a chat channel');
+    expect(msg).toContain('commands:\n- access: Manage the allowlist');
+    expect(msg).toContain('readme_excerpt:\n# Example MCP');
+  });
+});
+
 describe('scope marking', () => {
   it('marks only intake-created items out of scope for Next.js', async () => {
     await addItem('example-seeded', 'https://github.com/example-org/example-mcp');
@@ -220,6 +318,13 @@ describe('classifier prompt', () => {
   it('is long enough to be cached (512+ tokens at ~4 chars/token)', () => {
     expect(SYSTEM_PROMPT.length / 4).toBeGreaterThan(512);
   });
+  it('rules out the categories that were wrong in M8 acceptance', () => {
+    expect(SYSTEM_PROMPT).toMatch(/chat and messaging bridges \(Discord/);
+    expect(SYSTEM_PROMPT).toMatch(/CLAUDE\.md or memory upkeep/);
+    expect(SYSTEM_PROMPT).toMatch(/A wrong category is worse than null/);
+    expect(SYSTEM_PROMPT).toMatch(/technologies — /);
+    expect(SYSTEM_PROMPT).toMatch(/README and the components list are the evidence/);
+  });
   it('strips fence tags from untrusted text and truncates the README', () => {
     const msg = buildUserMessage(
       {
@@ -228,6 +333,7 @@ describe('classifier prompt', () => {
         sourceUrl: 'https://example.test',
         kindHint: null,
         description: null,
+        components: null,
         readme: 'a'.repeat(5000),
       },
       100,

@@ -143,6 +143,19 @@ describe('gateItem', () => {
     expect(await t.db.select().from(signalSnapshots)).toHaveLength(1);
   });
 
+  it('stores the skill as a component and estimates its context cost', async () => {
+    const item = await addSkill();
+    const md = `---\nname: pdf\ndescription: ${'Extract text from PDF files. '.repeat(4).trim()}\n---\n${'Step. '.repeat(200)}`;
+    await gateItem(deps(skillRepoRoutes(md)), item, now);
+    const [updated] = await t.db.select().from(catalogItems);
+    expect(updated?.components?.skills).toEqual([
+      { name: 'pdf', description: 'Extract text from PDF files. '.repeat(4).trim() },
+    ]);
+    // Description (3 + 115 chars) / 4 + 8 framing tokens; the 1,200-char body loads on use.
+    expect(updated?.contextOverheadTokens).toBe(Math.ceil(118 / 4) + 8);
+    expect(updated?.contextOnUseTokens).toBe(300);
+  });
+
   it('blocks a skill whose instructions contain a confirmed injection', async () => {
     const item = await addSkill();
     const report = await gateItem(

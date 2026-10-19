@@ -32,6 +32,10 @@ function item(id: string, overrides: Partial<SnapshotItem>): SnapshotItem {
     },
     capabilities: [],
     contextOverheadTokens: 1000,
+    contextOnUseTokens: null,
+    summary: null,
+    technologies: [],
+    firstPublishedAt: '2024-01-01T00:00:00.000Z',
     supersedes: null,
     supersededBy: null,
     scorecard: { confidence: 'high', gates: gates(), securityFlags: 0, reviewedAt: checkedAt },
@@ -52,6 +56,7 @@ export function fixtureSnapshot(generatedAt = '2026-10-19T02:00:00.000Z'): Snaps
         install: { method: 'npx', package: '@example/docs-mcp', version: '1.2.0', envVars: [] },
         version: '1.2.0',
         contextOverheadTokens: 1200,
+        summary: 'Serves current docs for example libraries.',
       }),
       item('example-docs-alt', {
         provenance: 'community',
@@ -75,10 +80,12 @@ export function fixtureSnapshot(generatedAt = '2026-10-19T02:00:00.000Z'): Snaps
           url: 'https://github.com/example-org/example-vitest-skill',
           envVars: [],
         },
-        contextOverheadTokens: null,
+        contextOverheadTokens: 150,
+        contextOnUseTokens: 2000,
       }),
       item('example-prisma-mcp', {
         category: 'database',
+        technologies: ['prisma'],
         provenance: 'community',
         scorecard: {
           confidence: 'medium',
@@ -87,8 +94,13 @@ export function fixtureSnapshot(generatedAt = '2026-10-19T02:00:00.000Z'): Snaps
           reviewedAt: checkedAt,
         },
       }),
+      item('example-sql-mcp', {
+        category: 'database',
+        install: { method: 'npx', package: '@example/sql-mcp', version: '1.0.0', envVars: [] },
+      }),
       item('example-supabase-mcp', {
         category: 'database',
+        technologies: ['Supabase'],
         install: {
           method: 'npx',
           package: '@example/supabase-mcp',
@@ -99,6 +111,7 @@ export function fixtureSnapshot(generatedAt = '2026-10-19T02:00:00.000Z'): Snaps
       }),
       item('example-vercel-mcp', {
         category: 'deploy',
+        technologies: ['vercel'],
         install: { method: 'remote', url: 'https://mcp.example.test/vercel', envVars: [] },
       }),
       item('example-review-plugin', {
@@ -113,8 +126,30 @@ export function fixtureSnapshot(generatedAt = '2026-10-19T02:00:00.000Z'): Snaps
         },
         contextOverheadTokens: null,
       }),
+      item('example-cloudflare-skills', {
+        kind: 'skill',
+        category: 'deploy',
+        stacks: ['any'],
+        technologies: ['cloudflare'],
+        install: {
+          method: 'skill_copy',
+          url: 'https://github.com/example-org/example-cloudflare-skills',
+          envVars: [],
+        },
+        contextOverheadTokens: 300,
+      }),
+      item('example-generic-deploy', {
+        category: 'deploy',
+        install: {
+          method: 'npx',
+          package: '@example/generic-deploy',
+          version: '1.0.0',
+          envVars: [],
+        },
+      }),
       item('example-git-mcp', {
         category: 'git_github',
+        technologies: ['github'],
         stacks: ['any'],
         install: {
           method: 'uvx',
@@ -127,11 +162,14 @@ export function fixtureSnapshot(generatedAt = '2026-10-19T02:00:00.000Z'): Snaps
       }),
       item('example-tailwind-ui', {
         category: 'ui_components',
+        technologies: ['tailwindcss'],
+        firstPublishedAt: '2026-09-01T00:00:00.000Z',
         status: 'recommended_provisional',
         scorecard: { confidence: 'medium', gates: gates(), securityFlags: 0, reviewedAt: null },
       }),
       item('example-stripe-mcp', {
         category: 'payments',
+        technologies: ['stripe'],
         install: {
           method: 'npx',
           package: '@example/stripe-mcp',

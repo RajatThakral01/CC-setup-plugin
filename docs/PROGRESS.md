@@ -2,9 +2,9 @@
 
 ## Current state
 
-- **Session range:** M8.1 (fixes before acceptance) and M9 (eval harness, paid pilot only), owner-approved 2026-10-19. The M8 owner acceptance (docs/M8_ACCEPTANCE.md) is still to be run by the owner.
-- **Current milestone:** 9 — Eval harness.
-- **Total Anthropic API spend to date:** USD 0.2807 (classification USD 0.1359 + M9 pilot USD 0.1449). Weekly cap USD 20, total cap USD 40.
+- **Session range:** M8.2 (fixes after the owner's M8 acceptance), owner-requested 2026-10-19. The owner re-runs docs/M8_ACCEPTANCE.md next.
+- **Current milestone:** 8.2 done; owner re-acceptance of M8 pending, then M9 full evaluation (owner go-ahead) and M10.
+- **Total Anthropic API spend to date:** USD 0.3196 (classification USD 0.1747, incl. the M8.2 re-classification USD 0.0388; M9 pilot USD 0.1449). Weekly cap USD 20, total cap USD 40.
 - **Remote:** https://github.com/RajatThakral01/CC-setup-plugin — pushed after every milestone; CI green.
 
 ## Milestones
@@ -22,6 +22,7 @@
 | 8   | Plugin packaging            | Built; owner acceptance pending                     | M8     |
 | 8.1 | Fixes before acceptance     | Done                                                | M8.1   |
 | 9   | Eval harness                | Built; pilot done; full eval pending owner go-ahead | M9     |
+| 8.2 | Fixes after M8 acceptance   | Done; owner re-acceptance pending                   | M8.2   |
 | 10  | End-to-end acceptance       |                                                     |        |
 
 ## Milestone 0 — Repo and tooling (done)
@@ -206,6 +207,44 @@ Acceptance:
 - [x] No Opus call is possible anywhere: config refusal and `check:models` (CI), `runOne` refuses before running, the relay refuses Opus requests (test), and the container maps every alias to Haiku/Sonnet (real-Docker test).
 
 Tests (499 + 5 real-Docker, all green): task loader and version hashing, output parser, policy (every rule), relay (key swap, model refusal, egress denial, no key in logs), costs and plan maths, runner/evaluate on a test DB with a fake driver (ledger, artifacts, Opus refusal, pre-flight, hard stop, cap at budget left, unparsed output, cache keys, early stop, Stage B, queue), real-Docker driver with a fake `claude`, triage eval section.
+
+## Milestone 8.2 — Fixes after the M8 owner acceptance (done; owner re-acceptance pending)
+
+The owner's M8 acceptance on a fresh Next.js 16 app passed install, hooks (typecheck) and the rollback byte compare, and failed recommendation quality and the broken-server check. Fixed:
+
+- **A. Recommendation quality:**
+  - Triage shows kind and category prominently and lets the owner edit them; owner-set values are never re-classified.
+  - The classify-v3 prompt uses README and component lists, has stricter categories and a new `technologies` field. All non-rejected items were re-classified; changed items are flagged for review in triage.
+  - Per-category fit rules (vendor-specific items need the vendor detected or stated; deploy needs the stated target) and a minimum fit bar, with "no suitable item in the catalog yet" gaps.
+  - Reasons name the specific signal. Fit and credibility are shown separately.
+  - Context overhead includes skills and plugins (descriptions always loaded; largest body on use).
+  - Provisional means "approved before evals"; "new" only for items under 180 days old.
+- **B. Project analysis:** AGENTS.md detected (and imported from the CLAUDE.md block); a settings-only `pnpm-workspace.yaml` is not a monorepo.
+- **C. Config and skill:**
+  - The CLAUDE.md block has the real package.json commands, the `@AGENTS.md` import and one "when to use" line per tool, with no category ids.
+  - The skill shows every file's full diff and writes one file at a time when asked.
+  - Plugin installs use `--scope project`; `/setup-rollback` previews and gives the uninstall commands.
+- **D. Hooks:** lint warnings go back to Claude as non-blocking context and errors stay blocking; a Stop-hook lint pass over git-changed files covers shell edits.
+- **E. verify_setup:** runs every check per server (package version resolves, env vars, start with placeholder values for local servers) and reports all failures together.
+- **F.** `docs/M8_ACCEPTANCE.md` rewritten: a real ESLint error and a type error, a byte compare that ignores git-ignored build output, and auto mode switched off.
+- **G.** Python Playwright 1.64.0 in the eval image, checked by `pnpm evals selftest`.
+
+Live: gates re-run on all 140 non-rejected items (0 errors), `classify --all` (USD 0.0388): **47 items changed kind or category** and are flagged "needs classification review" in triage. Two of them are approved items that now have no category (Discord, CLAUDE.md management); the snapshot leaves them out. Snapshot `2026.10.19-2` published (8 items). Eval image `ccsa-eval:2ccdf8d0b1836b19` built; `pnpm evals selftest` 6/6 (Python Playwright + 5 tasks), no API calls.
+
+Tests: 544 passing (+5 real-Docker run in CI). Each item has regression tests:
+
+- triage edit, review filter and owner lock;
+- the classifier prompt, components input and `--all` mode;
+- fit rules, gaps, signals, fit vs credibility, context cost, provisional and new wording;
+- AGENTS.md and monorepo detection;
+- the CLAUDE.md block;
+- skill and command text (full diffs, one file at a time, project scope, rollback preview);
+- project-scope plugin rollback;
+- lint warnings, errors and the Stop pass, run against fake tools in a real git repo;
+- verify with all failures together;
+- the eval image Dockerfile and its Python Playwright check.
+
+Details and decisions: DECISIONS "Milestone 8.2".
 
 ## Open questions
 

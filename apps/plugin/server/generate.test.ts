@@ -43,9 +43,12 @@ describe('generateConfig', () => {
     ]);
     expect(r.requiredEnvVars).toEqual(['EXAMPLE_GIT_TOKEN', 'EXAMPLE_SUPABASE_TOKEN']);
     expect(r.installCommands).toEqual([
-      'claude plugin marketplace add example-org/example-plugins',
-      'claude plugin install review@example-market',
+      'claude plugin marketplace add example-org/example-plugins --scope project',
+      'claude plugin install review@example-market --scope project',
       'Copy the skill folder from https://github.com/example-org/example-vitest-skill into .claude/skills/example-vitest-skill/',
+    ]);
+    expect(r.plugins).toEqual([
+      { id: 'example-review-plugin', plugin: 'review', marketplace: 'example-market' },
     ]);
     for (const f of r.files) expect(f.content).toMatchSnapshot(f.path);
     const mcp = JSON.parse(r.files[1]!.content) as {
@@ -59,6 +62,34 @@ describe('generateConfig', () => {
     // Pinned versions, never latest; placeholders, never values.
     expect(r.files[1]!.content).not.toMatch(/@latest|"latest"/);
     expect(r.files[0]!.diff).toMatch(/^--- \/dev\/null\n\+\+\+ b\/CLAUDE.md/);
+  });
+
+  it('writes a useful CLAUDE.md block: real commands, when to use each tool, no category ids', async () => {
+    const root = await copyFixture('next-fresh');
+    const r = await generateConfig(root, snapshot, approved);
+    const block = r.files[0]!.content;
+    expect(block).toContain('### Commands');
+    expect(block).toContain('- `pnpm dev`: next dev');
+    expect(block).toContain('- `pnpm typecheck`: tsc --noEmit');
+    expect(block).toContain(
+      '- **example-docs-mcp** (MCP server): Use it before writing code against a framework or library API, to check the current docs. Serves current docs for example libraries.',
+    );
+    expect(block).toContain('- **example-review-plugin** (plugin): Use it to review changes');
+    expect(block).not.toMatch(/\b(docs|git_github|code_review|unit_testing)\)/);
+    expect(block).not.toContain('AGENTS.md');
+  });
+
+  it('imports AGENTS.md instead of duplicating it (create-next-app 16)', async () => {
+    const root = await copyFixture('next16-default');
+    const r = await generateConfig(root, snapshot, ['example-docs-mcp']);
+    const claude = r.files[0]!.content;
+    expect(claude).toContain('Project rules for coding agents live in AGENTS.md:\n\n@AGENTS.md');
+    expect(claude).not.toContain('Read the bundled Next.js docs');
+    expect(claude).toContain('- `pnpm build`: next build');
+    // Already imported outside the block: no second import.
+    await writeFile(join(root, 'CLAUDE.md'), '@AGENTS.md\n\n# My rules\n');
+    const again = (await generateConfig(root, snapshot, ['example-docs-mcp'])).files[0]!.content;
+    expect(again.match(/@AGENTS\.md/g)).toHaveLength(1);
   });
 
   it('never changes content outside the managed block, and keeps unknown servers', async () => {

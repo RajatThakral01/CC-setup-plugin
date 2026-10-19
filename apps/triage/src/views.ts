@@ -3,6 +3,7 @@ import type { HtmlEscapedString } from 'hono/utils/html';
 import {
   ALLOWED_TRANSITIONS,
   CATEGORIES,
+  KINDS,
   STATUSES,
   type GateResult,
   type Status,
@@ -40,6 +41,10 @@ a { color: var(--accent); }
 .notice { background:#f0f6ff; border:1px solid var(--accent); padding:8px 12px; border-radius:6px; margin:12px 0; }
 .error { background:#fff0f0; border:1px solid var(--fail); padding:8px 12px; border-radius:6px; margin:12px 0; }
 .muted { color: var(--muted); }
+.cls { font-weight:600; font-size:13px; padding:2px 8px; border-radius:4px; background:#eef4ff; color:#0b3d91; border:1px solid #c7d7f5; display:inline-block; margin:1px 0; }
+.cls.none { background:#f6f6f6; color:var(--muted); border-color:var(--line); }
+.review { background:#fff8e6; border:2px solid var(--soft); padding:10px 14px; border-radius:6px; margin:12px 0; }
+.classification { display:flex; gap:10px; align-items:center; flex-wrap:wrap; font-size:15px; margin:8px 0 4px; }
 form.filters { display:flex; gap:8px; flex-wrap:wrap; margin-bottom:12px; align-items:center; }
 textarea { width:100%; min-height:60px; font: inherit; }
 label { display:block; margin-top:8px; font-weight:600; }
@@ -109,6 +114,7 @@ export function queuePage(
   counts: { in: number; out: number },
   reviewer: string,
   csrf: string,
+  needingReview = 0,
 ): View {
   const opt = (value: string, current: string | undefined, label = value) =>
     html`<option value="${value}" ${value === current ? 'selected' : ''}>${label}</option>`;
@@ -129,6 +135,10 @@ export function queuePage(
           ${CATEGORIES.map((c) => opt(c, filter.category))}
         </select>
         <input name="q" placeholder="search id or name" value="${filter.q ?? ''}" />
+        <label style="display:inline;font-weight:400"
+          ><input type="checkbox" name="review" value="1" ${filter.review ? 'checked' : ''} /> needs
+          classification review (${needingReview})</label
+        >
         <button>Filter</button>
         ${
           filter.scope === 'in' && counts.out > 0
@@ -160,7 +170,14 @@ export function queuePage(
                   ${e.item.outOfScope.includes(MVP_STACK) ? html` <span class="badge not_run">out of scope</span>` : ''}
                   <div class="muted">${e.item.id}</div>
                 </td>
-                <td>${e.item.kind ?? '?'} / ${e.item.category ?? '?'}</td>
+                <td>
+                  <span class="cls ${e.item.kind ? '' : 'none'}">${e.item.kind ?? 'no kind'}</span>
+                  <span class="cls ${e.item.category ? '' : 'none'}"
+                    >${e.item.category ?? 'no category'}</span
+                  >
+                  ${e.item.classificationReview ? html`<span class="badge soft_fail">changed: review</span>` : ''}
+                  ${e.item.categorySetBy ? html`<span class="badge pass">owner-set</span>` : ''}
+                </td>
                 <td>${e.item.provenance ?? '?'}</td>
                 <td>${e.scorecard?.confidence ?? 'not gated'}</td>
                 <td>
@@ -244,6 +261,57 @@ function evalSection(d: ItemDetail) {
     </table>`;
 }
 
+/**
+ * Kind and category, shown prominently, with an owner edit form. Saving marks both as owner-set
+ * (never overwritten by reclassification) and clears a pending reclassification review.
+ */
+function classificationPanel(d: ItemDetail, csrf: string) {
+  const { item } = d;
+  const review = item.classificationReview;
+  const setBy = [
+    item.kindSetBy ? `kind set by ${item.kindSetBy.replace(/^human:/, '')}` : '',
+    item.categorySetBy ? `category set by ${item.categorySetBy.replace(/^human:/, '')}` : '',
+    item.technologiesSetBy
+      ? `technologies set by ${item.technologiesSetBy.replace(/^human:/, '')}`
+      : '',
+  ].filter(Boolean);
+  return html`<div class="classification">
+      <span class="muted">Kind</span>
+      <span class="cls ${item.kind ? '' : 'none'}">${item.kind ?? 'none'}</span>
+      <span class="muted">Category</span>
+      <span class="cls ${item.category ? '' : 'none'}">${item.category ?? 'none'}</span>
+      ${setBy.length > 0 ? html`<span class="badge pass">${setBy.join(', ')}</span>` : ''}
+    </div>
+    ${
+      review
+        ? html`<div class="review">
+            <strong>Reclassified (${review.promptVersion}):</strong> was
+            ${review.previousKind ?? 'none'} / ${review.previousCategory ?? 'none'}, now
+            ${item.kind ?? 'none'} / ${item.category ?? 'none'}. Confirm or correct it below.
+          </div>`
+        : ''
+    }
+    <form method="post" action="/items/${item.id}/classification" class="filters">
+      <input type="hidden" name="csrf" value="${csrf}" />
+      <select name="kind" required>
+        ${KINDS.map((k) => html`<option value="${k}" ${k === item.kind ? 'selected' : ''}>${k}</option>`)}
+      </select>
+      <select name="category" required>
+        <option value="none" ${item.category === null ? 'selected' : ''}>no category</option>
+        ${CATEGORIES.map((c) => html`<option value="${c}" ${c === item.category ? 'selected' : ''}>${c}</option>`)}
+      </select>
+      <input
+        name="technologies"
+        size="28"
+        value="${(item.technologies ?? []).join(', ')}"
+        placeholder="technologies, e.g. prisma (empty = any project)"
+        title="Products the project must use for this item to fit; empty means vendor-neutral"
+      />
+      <input name="reason" required minlength="3" placeholder="reason (audit log)" />
+      <button>Save kind, category and technologies</button>
+    </form>`;
+}
+
 export function itemPage(
   d: ItemDetail,
   reviewer: string,
@@ -266,6 +334,7 @@ export function itemPage(
     html`<p><a href="/">← queue</a></p>
       <h1>${item.name} <span class="badge">${item.status}</span></h1>
       ${message ? html`<div class="${message.kind}">${message.text}</div>` : ''}
+      ${classificationPanel(d, csrf)}
       ${
         flagged
           ? html`<div class="flag">
@@ -292,8 +361,10 @@ export function itemPage(
         <dd>
           <a href="${safeHref(item.sourceUrl)}" rel="noreferrer noopener">${item.sourceUrl}</a>
         </dd>
-        <dt>Kind / category</dt>
-        <dd>${item.kind ?? '?'} / ${item.category ?? '?'}</dd>
+        <dt>Technologies</dt>
+        <dd>
+          ${item.technologies === null ? html`<span class="muted">not classified yet</span>` : item.technologies.join(', ') || 'none (vendor-neutral)'}
+        </dd>
         <dt>Stacks</dt>
         <dd>
           ${item.stacks.join(', ') || '–'}

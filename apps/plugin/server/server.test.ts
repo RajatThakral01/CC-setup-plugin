@@ -73,7 +73,7 @@ describe('plugin MCP server', () => {
     const root = await copyFixture('next-fresh');
 
     const sync = (await call('sync_catalog')).json();
-    expect(sync).toMatchObject({ catalogVersion: '2026.10.19-1', updated: true, itemCount: 13 });
+    expect(sync).toMatchObject({ catalogVersion: '2026.10.19-1', updated: true, itemCount: 16 });
 
     const analyzed = (await call('analyze_project', { path: root })).json() as {
       catalogVersion: string;

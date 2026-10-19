@@ -5,6 +5,7 @@ import {
   asc,
   catalogItems,
   eq,
+  inArray,
   isNull,
   ne,
   or,
@@ -41,6 +42,8 @@ export interface ClassifyReport {
   failed: number;
   costUsd: number;
   stoppedBy?: string;
+  /** Items whose kind or category changed (flagged for review in triage). */
+  changes: ClassificationChange[];
 }
 
 /** Stop after this many consecutive API failures (e.g. a bad key) instead of hammering the API. */
@@ -85,30 +88,64 @@ export async function classifySource(
 
 type ItemRow = typeof catalogItems.$inferSelect;
 
+export type ApplyMode =
+  /** Normal runs: fill empty fields; intake items also replace the previous classification's values. */
+  | { kind: 'normal'; intakeCreated: boolean }
+  /** Owner-requested re-classification of the whole catalog: replace everything not owner-set. */
+  | { kind: 'all' };
+
 /**
- * Fields to update from a classification. Empty fields are always filled. On intake-created items
- * a field that still holds the previous classification's value is replaced too; seeded items keep
- * their owner-approved hints untouched.
+ * Fields to update from a classification. Owner-set kind or category (set in triage) is never
+ * replaced. In a normal run, empty fields are always filled, and on intake-created items a field
+ * that still holds the previous classification's value is replaced too; seed hints are kept. A
+ * re-classification of everything (`all`) replaces kind, category and stacks unless owner-set.
+ * Technologies always come from the newest classification (only the classifier sets them).
  */
 export function applyClassification(
-  item: Pick<ItemRow, 'kind' | 'category' | 'stacks' | 'provenance' | 'classification'>,
+  item: Pick<
+    ItemRow,
+    | 'kind'
+    | 'category'
+    | 'stacks'
+    | 'provenance'
+    | 'classification'
+    | 'kindSetBy'
+    | 'categorySetBy'
+    | 'technologiesSetBy'
+  >,
   c: Classification,
-  intakeCreated: boolean,
+  mode: ApplyMode,
 ): Partial<typeof catalogItems.$inferInsert> {
-  const prev = intakeCreated ? item.classification : null;
+  const all = mode.kind === 'all';
+  const prev = mode.kind === 'normal' && mode.intakeCreated ? item.classification : null;
   const replaceable = <T>(current: T, previous: T | undefined) =>
-    current === null || (prev !== null && JSON.stringify(current) === JSON.stringify(previous));
+    all ||
+    current === null ||
+    (prev !== null && JSON.stringify(current) === JSON.stringify(previous));
   return {
-    kind: replaceable(item.kind, prev?.kind) ? c.kind : item.kind,
-    category: replaceable(item.category, prev?.category) ? c.category : item.category,
+    kind: !item.kindSetBy && replaceable(item.kind, prev?.kind) ? c.kind : item.kind,
+    category:
+      !item.categorySetBy && replaceable(item.category, prev?.category)
+        ? c.category
+        : item.category,
     stacks:
       item.stacks.length === 0 || replaceable(item.stacks, prev?.stacks) ? c.stacks : item.stacks,
-    provenance: replaceable(item.provenance, prev?.provenanceGuess)
-      ? c.provenanceGuess
-      : item.provenance,
+    provenance:
+      item.provenance === null ||
+      (prev !== null && JSON.stringify(item.provenance) === JSON.stringify(prev.provenanceGuess))
+        ? c.provenanceGuess
+        : item.provenance,
+    technologies: item.technologiesSetBy ? undefined : c.technologies,
     classification: c,
     classificationState: 'classified',
   };
+}
+
+export interface ClassificationChange {
+  id: string;
+  status: string;
+  from: { kind: string | null; category: string | null };
+  to: { kind: string | null; category: string | null };
 }
 
 /**
@@ -135,11 +172,12 @@ export async function isIntakeCreated(db: DbOrTx, itemId: string): Promise<boole
 
 /**
  * Classifies `pending` items (FR-D9), oldest first, until done or out of budget. With `stale`,
- * also re-classifies items classified by an older prompt version.
+ * also re-classifies items classified by an older prompt version. With `all`, re-classifies every
+ * item that isn't rejected and replaces kind, category and stacks unless the owner set them.
  */
 export async function classifyPending(
   deps: ClassifyDeps,
-  options: { limit?: number; stale?: boolean } = {},
+  options: { limit?: number; stale?: boolean; all?: boolean; itemIds?: string[] } = {},
 ): Promise<ClassifyReport> {
   const report: ClassifyReport = {
     classified: 0,
@@ -147,21 +185,27 @@ export async function classifyPending(
     queuedByBudget: 0,
     failed: 0,
     costUsd: 0,
+    changes: [],
   };
   const pendingFilter = eq(catalogItems.classificationState, 'pending');
   const items = await deps.db
     .select()
     .from(catalogItems)
     .where(
-      options.stale
-        ? or(
-            pendingFilter,
-            and(
-              eq(catalogItems.classificationState, 'classified'),
-              ne(sql`${catalogItems.classification}->>'promptVersion'`, PROMPT_VERSION),
-            ),
+      options.all
+        ? and(
+            ne(catalogItems.status, 'rejected'),
+            options.itemIds ? inArray(catalogItems.id, options.itemIds) : undefined,
           )
-        : pendingFilter,
+        : options.stale
+          ? or(
+              pendingFilter,
+              and(
+                eq(catalogItems.classificationState, 'classified'),
+                ne(sql`${catalogItems.classification}->>'promptVersion'`, PROMPT_VERSION),
+              ),
+            )
+          : pendingFilter,
     )
     .orderBy(asc(catalogItems.firstSeen), asc(catalogItems.id))
     .limit(options.limit ?? 10_000);
@@ -177,6 +221,7 @@ export async function classifyPending(
           sourceUrl: item.sourceUrl,
           kindHint: item.kind,
           description: item.description,
+          components: item.components,
         },
         `classify:${item.id}`,
       );
@@ -184,11 +229,35 @@ export async function classifyPending(
       report.costUsd += outcome.costUsd;
       if (outcome.ok) {
         const intake = await isIntakeCreated(deps.db, item.id);
+        const update = applyClassification(
+          item,
+          outcome.classification,
+          options.all ? { kind: 'all' } : { kind: 'normal', intakeCreated: intake },
+        );
+        const changed = update.kind !== item.kind || update.category !== item.category;
+        if (changed) {
+          report.changes.push({
+            id: item.id,
+            status: item.status,
+            from: { kind: item.kind, category: item.category },
+            to: { kind: update.kind ?? null, category: update.category ?? null },
+          });
+        }
         await deps.db
           .update(catalogItems)
           .set({
-            ...applyClassification(item, outcome.classification, intake),
+            ...update,
             outOfScope: outOfScopeFor(outcome.classification, intake),
+            ...(changed
+              ? {
+                  classificationReview: {
+                    previousKind: item.kind,
+                    previousCategory: item.category,
+                    promptVersion: outcome.classification.promptVersion,
+                    changedAt: outcome.classification.classifiedAt,
+                  },
+                }
+              : {}),
           })
           .where(eq(catalogItems.id, item.id));
         report.classified++;

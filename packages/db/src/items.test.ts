@@ -1,7 +1,7 @@
 import { eq } from 'drizzle-orm';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import { InvalidTransitionError, ItemNotFoundError } from './errors.js';
-import { insertCandidate, transitionStatus } from './items.js';
+import { insertCandidate, setClassificationFields, transitionStatus } from './items.js';
 import { catalogItems, statusEvents } from './schema.js';
 import { createTestDatabase, type TestDatabase } from './testing.js';
 
@@ -111,6 +111,60 @@ describe('transitionStatus', () => {
   it('throws for unknown items', async () => {
     await expect(
       transitionStatus(t.db, 'example-missing', 'watchlist', 'system', 'x'),
+    ).rejects.toBeInstanceOf(ItemNotFoundError);
+  });
+});
+
+describe('setClassificationFields', () => {
+  it('sets kind and category as owner-set, clears the review flag and audits it', async () => {
+    const id = await newItem();
+    await t.db
+      .update(catalogItems)
+      .set({
+        kind: 'plugin',
+        category: 'git_github',
+        classificationReview: {
+          previousKind: 'plugin',
+          previousCategory: 'code_review',
+          promptVersion: 'classify-v3',
+          changedAt: '2026-10-19T00:00:00.000Z',
+        },
+      })
+      .where(eq(catalogItems.id, id));
+    await setClassificationFields(
+      t.db,
+      id,
+      { category: null },
+      'human:owner',
+      'chat bridge, no category fits',
+    );
+    const [row] = await t.db.select().from(catalogItems).where(eq(catalogItems.id, id));
+    expect(row).toMatchObject({
+      kind: 'plugin',
+      category: null,
+      categorySetBy: 'human:owner',
+      kindSetBy: null,
+      classificationReview: null,
+    });
+    expect((await events(id)).at(-1)).toMatchObject({
+      fromStatus: 'candidate',
+      toStatus: 'candidate',
+      actor: 'human:owner',
+      reason:
+        'classification set by owner (category git_github → none): chat bridge, no category fits',
+    });
+  });
+
+  it('refuses system actors, empty reasons and unknown items', async () => {
+    const id = await newItem();
+    await expect(
+      setClassificationFields(t.db, id, { kind: 'skill' }, 'system', 'x'),
+    ).rejects.toThrow(/human actor required/);
+    await expect(
+      setClassificationFields(t.db, id, { kind: 'skill' }, 'human:owner', ' '),
+    ).rejects.toThrow(/reason is required/);
+    await expect(
+      setClassificationFields(t.db, 'example-missing', { kind: 'skill' }, 'human:owner', 'x'),
     ).rejects.toBeInstanceOf(ItemNotFoundError);
   });
 });

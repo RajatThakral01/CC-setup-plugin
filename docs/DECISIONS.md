@@ -348,6 +348,84 @@ Both runs passed the hidden check. Pilot spend USD 0.1449, in the ledger (purpos
 
 The plan rests on one run per model on one task, so the harness doesn't hard-code it: every run and batch is pre-flighted with the measured mean, which updates as runs accrue, and each run is capped at USD 1.50 and at the budget left. Suggested first real batch, once the owner approves: Playwright MCP vs the `webapp-testing` incumbent (about USD 1.65 with baselines). Variance is also bounded by the catalog: the browser-testing category has only a handful of evaluable candidates (npx MCP servers and skills without credentials).
 
+## Milestone 8.2 (fixes after the M8 owner acceptance, owner request 2026-10-19)
+
+**Claude Code facts verified (code.claude.com/docs and `claude plugin … --help`, Claude Code 2.1.303, 2026-10-19)**
+
+- `claude plugin install <p>@<m> --scope project` and `claude plugin marketplace add <src> --scope project` exist. Project scope writes `.claude/settings.json`: `enabledPlugins` (`{"<name>@<marketplace>": true}`) and `extraKnownMarketplaces` (`{"<name>": {"source": {...}}}`). The plugin code itself is cached per user under `~/.claude/plugins/cache/…`. Teammates aren't auto-installed. `claude plugin uninstall <p> --scope project` and `claude plugin marketplace remove <name> --scope project` undo it.
+- Claude Code reads `AGENTS.md` on its own only while no `CLAUDE.md` exists; the documented pattern is a `CLAUDE.md` that imports it with `@AGENTS.md`. Imports resolve relative to the importing file (max depth 4) and are skipped inside code spans and fenced blocks.
+- PostToolUse non-blocking feedback: JSON on stdout, `{"hookSpecificOutput":{"hookEventName":"PostToolUse","additionalContext":"…"}}`, exit 0. Plain stdout on exit 0 isn't shown to Claude. Exit 2 shows stderr to Claude (the tool has already run).
+- Skills, commands and agents: name and description are in context every turn (the description is cut at 1,536 characters in the listing; `disable-model-invocation: true` removes it); the body loads only when used.
+
+**A. Recommendation quality**
+
+- **Owner-set kind/category:** new columns `kind_set_by` and `category_set_by`, written only by `setClassificationFields()` (human actors only, reason required, audit row in `status_events` with the same status on both sides). Classification never replaces an owner-set field, in any mode. Triage shows kind and category as badges at the top of the item page and in the queue, with an edit form ("no category" allowed).
+- **Owner-editable technologies:** the triage form also edits `technologies` (comma-separated; empty = vendor-neutral). Saving locks them (`technologies_set_by`, migration `0005`), like kind and category. Added after the live run, because fit depends on them and the classifier tagged `anthropics-skills-webapp-testing` with `playwright`, which would hide it from projects that don't use Playwright yet. Saving the form locks all three fields: the owner is confirming them.
+- **classify-v3 prompt:** the classifier now gets the item's components (MCP tool names and descriptions from the sandbox probe; skills, commands and agents from frontmatter in the repo tree) as well as the README, and is told to judge from those, not from the short description. Category definitions are stricter, with explicit "null" cases (chat and messaging bridges, tools that manage Claude Code itself such as CLAUDE.md upkeep, productivity). "A wrong category is worse than null." New output field `technologies` (lowercase product or vendor names the project must already use). Model and budget unchanged (Haiku, classification ledger).
+- **Re-classification of all non-rejected items** (`classify --all`): replaces kind, category and stacks unless owner-set. **This includes seed hints** (the owner-approved seed list was proposed by me in bulk, and the wrong `deploy`/`code_review`/`git_github` filings came partly from it). Every kind or category change is stored in `classification_review` (previous values, prompt version) and listed in the report; triage has a "needs classification review" filter, and saving kind/category clears the flag.
+- **Fit rules (plugin, `recommend.ts`):**
+  - The project's technologies are built from package.json dependencies (with their version ranges), deploy config files (`vercel.json`, `netlify.toml`, `wrangler.*`), `components.json`, the git remote host from `.git/config`, and the stated deploy target. Each comes with the evidence text shown to the user.
+  - An item with `technologies` fits only when one of them is detected or stated (fit `strong`).
+  - A vendor-neutral item (empty `technologies`) fits a needed category (fit `good`), except in deploy, auth, payments, email, CMS and observability, where only a vendor match fits.
+  - Snapshots from before classify-v3 (`technologies: null`) fall back to vendor names in the item name.
+  - Spellings are normalised (`TailwindCSS` → `tailwind`, `Cloudflare Workers` → `cloudflare`); generic words such as typescript, node and mcp never make an item vendor-specific.
+- **Category needs need a specific signal:**
+  - docs: Next.js detected;
+  - code review: the risk-tolerance answer is low or medium;
+  - git hosting: a GitHub, GitLab or Bitbucket remote (a bare `.git` folder no longer counts);
+  - deploy: the stated target, or a deploy config file when the target is "unknown".
+  - The other categories are unchanged, but each now cites its signal.
+- **Minimum fit bar = `good`.** A needed category with nothing above it gets a `gaps` entry ("No suitable item in the catalog yet", with detail) and no recommendation.
+- **Fit and credibility are separate output fields** (`fit`, `fitReason`, `credibility`, `credibilitySummary`); the old `confidence`/`scorecardSummary` fields are gone. The skill shows them on separate lines. `categoryLabel` is the human label; internal ids are never shown.
+- **Context overhead for skills and plugins:** gates fetch up to 60 component files per item and estimate the always-loaded listing (name + description ≤ 1,536 chars, ÷ 4, + 8 tokens per entry) into `contextOverheadTokens`, and the largest skill or command body into `contextOnUseTokens`. MCP servers keep the tool-definitions estimate. The plan's total lists items it couldn't measure (`unknownItems`). A plugin's bundled MCP servers are counted, but their tools aren't probed (noted as not measured).
+- **Provisional wording:** "provisional: approved by the maintainer before evals were run". "New" appears only when `firstPublishedAt` (the earlier of repo creation and first npm publication, from the gates) is under 180 days before the snapshot date. Measuring from the snapshot date keeps the output deterministic.
+- **Snapshot fields added** (all with defaults, so `schemaVersion` stays 1 and older snapshots still parse): `summary`, `technologies`, `contextOnUseTokens`, `firstPublishedAt`.
+
+- **Live re-classification (2026-10-19):** gates re-run first on all 140 non-rejected items (0 errors, no status changes; 19 MCP servers listed tools in the sandbox), so the classifier had component lists. `classify --all`: 138 classified, 2 refused at first because the model returned more than 5 technologies (structured outputs drop `maxItems`). The cap was removed, at most 8 are kept, and `--item` was added; both were re-run. Total cost USD 0.0388. **47 items changed kind or category** and are flagged for review in triage, including 2 approved ones (Discord → no category, CLAUDE.md management → no category). Both are now left out of the snapshot (recommended items need a category). Snapshot `2026.10.19-2` published (8 items).
+
+**B. Project analysis**
+
+- `analyze_project` reports `existingConfig.agentsMd` and `claudeMdImportsAgentsMd`, plus `dependencyVersions`, `deployConfigs` and `gitRemoteHost`.
+- `pnpm-workspace.yaml` counts as a monorepo marker only when it declares at least one `packages` glob; `package.json` `workspaces` only when non-empty. create-next-app 16 writes a settings-only workspace file.
+
+**C. Config generation and the skill**
+
+- **CLAUDE.md block:**
+  - imports `@AGENTS.md` when AGENTS.md exists and CLAUDE.md doesn't import it already (never copies it);
+  - lists up to 15 package.json scripts as real commands for the detected package manager;
+  - has one line per tool: name, kind, when to use it (per job), and the catalog summary;
+  - shows no category ids.
+- **Diffs and pacing (FR-G3):** the skill must paste every file's full diff, never a summary. In one-at-a-time mode it writes one file, then stops and waits. Covered by packaging tests on the skill text (the behaviour itself is checked in the owner acceptance).
+- **Plugin installs at project scope (FR-G2):**
+  - the install commands use `--scope project`, and `generate_config` returns `plugins`;
+  - rollback covers `.claude/settings.json`, so restoring it disables the plugins for the project;
+  - `rollback_setup` (new `dryRun` preview) compares `enabledPlugins` and `extraKnownMarketplaces` between the backup and now, and returns the exact uninstall and marketplace-remove commands;
+  - `/setup-rollback` previews first, offers to run those commands before restoring (they edit settings.json, which the restore then puts back byte for byte), then restores;
+  - no extra manifest entry is needed, because the settings diff is the record.
+
+**D. Hooks**
+
+- `lint-on-edit`, PostToolUse:
+  - linter exit 1 (errors) → exit 2 with the output (blocking, as before);
+  - exit 0 with diagnostics (warnings) → `additionalContext` JSON (non-blocking). ESLint's default formatter prints nothing for a clean file; Biome always prints a summary, so its warnings are recognised by rule names (`lint/<group>/<rule>`).
+- `lint-on-edit` also adds a **Stop** group that lints files changed in git (`git diff --cached --relative` plus `git ls-files -m -o --exclude-standard`, lintable extensions, at most 50, existing files only), so shell edits are covered.
+  - Errors only (exit 2); warnings are not fed back at Stop, because that would force an extra turn on every Stop with accepted warnings.
+  - Skipped when `stop_hook_active` is set or outside git.
+  - One approval adds both groups; recipes are added whole or not at all, and idempotency is still by marker.
+- Speed: one ESLint run over the changed files per turn (at most 50 files). Judged acceptable, but not measured on a real app; the owner's acceptance hook check will show it.
+
+**E. verify_setup**
+
+- Every server gets every check, and all failures are reported together:
+  - `package_resolves`: `npm view <pkg>@<version> version` honours the user's npm config; an existing package with a missing version prints nothing, which counts as not found. PyPI JSON API at `CC_SETUP_AGENT_PYPI_URL` (default `https://pypi.org`). An unpinned spec fails.
+  - `env_present`.
+  - `server_starts`: a local stdio server missing variables is started with the placeholder `setup-agent-placeholder` (safe: no real secret leaves the machine), and the result carries a `note`; a remote server missing variables is not started (reported as not started).
+- Then the duplicate-tools check, as before.
+
+**G. Eval image**
+
+- Python Playwright `1.64.0` (latest on PyPI, 2026-10-19) in a venv at `/opt/pyenv` (Debian's Python is externally managed; `python3-venv` added), first on `PATH`, with its Chromium in the shared `PLAYWRIGHT_BROWSERS_PATH`. `pnpm evals selftest` now first checks offline that Python Playwright launches Chromium (free). The image tag changes (Dockerfile hash); cache keys don't include the image, so cached baselines stay valid. Before this change they ran without Python Playwright; a re-baseline is advisable before the first real webapp-testing comparison.
+
 ## Dependencies
 
 One line each: why it was added.

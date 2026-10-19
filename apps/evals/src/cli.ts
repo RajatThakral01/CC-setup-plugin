@@ -30,7 +30,7 @@ import { findIncumbent, loadEvalItem } from './items.js';
 import { runPilot } from './pilot.js';
 import { newRunId, runLimits } from './runner.js';
 import { sweepEvalContainers } from './sandbox/docker-driver.js';
-import { buildImage, imageClaudeVersion } from './sandbox/image.js';
+import { buildImage, checkPythonPlaywright, imageClaudeVersion } from './sandbox/image.js';
 import { selftestTasks } from './selftest.js';
 import { loadTaskSet } from './tasks.js';
 import { createSkillFetcher, resolveToolSetup, type ToolSetup } from './tools.js';
@@ -124,6 +124,10 @@ async function main(argv: string[]): Promise<number> {
       case 'selftest': {
         const ctx = await createRunContext(c, false);
         const taskSet = await loadTaskSet(category);
+        const py = await checkPythonPlaywright(c.docker, (await currentImage(c)).tag);
+        out(
+          `${py.ok ? 'PASS' : 'FAIL'} image: Python Playwright launches Chromium${py.ok ? '' : `\n${py.output.slice(-1500)}`}`,
+        );
         out(`Task set ${taskSet.version} (${taskSet.tasks.length} tasks)`);
         const results = await selftestTasks(
           ctx.driver,
@@ -139,7 +143,9 @@ async function main(argv: string[]): Promise<number> {
           );
           if (!ok) out(r.detail);
         }
-        return results.every((r) => r.brokenFails && r.solutionPasses) && results.length > 0
+        return py.ok &&
+          results.every((r) => r.brokenFails && r.solutionPasses) &&
+          results.length > 0
           ? 0
           : 1;
       }

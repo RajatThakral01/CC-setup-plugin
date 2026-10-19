@@ -341,6 +341,8 @@ export async function runIntake(deps: IntakeDeps, options: IntakeOptions): Promi
             ? {
                 category: c.category,
                 stacks: c.stacks,
+                // Absent on classifications made before classify-v3: unknown, not vendor-neutral.
+                technologies: (c.technologies as string[] | undefined) ?? null,
                 provenance: c.provenanceGuess,
                 classification: c,
                 classificationState: 'classified' as const,
@@ -402,6 +404,7 @@ async function classifyRecords(
           sourceUrl: draft.sourceUrl,
           kindHint: draft.kind,
           description: draft.description,
+          components: null,
         },
         `classify-record:${row.source}:${row.externalId}`,
       );

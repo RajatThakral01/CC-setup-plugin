@@ -34,6 +34,12 @@ export const projectProfileSchema = z.object({
   databaseLibs: z.array(z.string()),
   /** Detected auth, payments, email, CMS and observability libraries (package names). */
   integrations: z.array(z.string()),
+  /** Declared version ranges of the detected libraries above (package name → range). */
+  dependencyVersions: z.record(z.string(), z.string()).default({}),
+  /** Deploy config files found at the root (vercel.json, netlify.toml, wrangler.toml, …). */
+  deployConfigs: z.array(z.string()).default([]),
+  /** Host of the git `origin` remote, from .git/config; null without a remote. */
+  gitRemoteHost: z.enum(['github', 'gitlab', 'bitbucket', 'other']).nullable().default(null),
   monorepo: z.object({
     isMonorepo: z.boolean(),
     markers: z.array(z.string()),
@@ -46,6 +52,10 @@ export const projectProfileSchema = z.object({
     settingsJson: z.boolean(),
     agentsDir: z.boolean(),
     skillsDir: z.boolean(),
+    /** AGENTS.md at the root (create-next-app 16 writes one). */
+    agentsMd: z.boolean().default(false),
+    /** CLAUDE.md already imports AGENTS.md (`@AGENTS.md`) outside the managed block. */
+    claudeMdImportsAgentsMd: z.boolean().default(false),
   }),
   mcpServerNames: z.array(z.string()),
   stacks: z.array(z.string()),
@@ -80,15 +90,33 @@ export const recommendSetupInputSchema = z.object({
   profile: projectProfileSchema,
   answers: setupAnswersSchema,
 });
+/** How well an item fits this project (separate from credibility, which is the gates' verdict). */
+export const fitSchema = z.enum(['strong', 'good']);
 export const recommendedItemSchema = z.object({
   id: itemIdSchema,
   name: z.string(),
+  kind: z.string(),
   category: categorySchema,
+  /** Human label for the category; internal category ids are never shown to users. */
+  categoryLabel: z.string(),
+  /** The specific project signal or answer that matched (e.g. "Tailwind CSS 4 in package.json"). */
   reason: z.string(),
-  scorecardSummary: z.string(),
+  fit: fitSchema,
+  /** Why the fit level was given. */
+  fitReason: z.string(),
+  /** Credibility from the gates (hygiene, provenance, health, security); not a fit judgement. */
+  credibility: confidenceSchema,
+  credibilitySummary: z.string(),
   tradeoff: z.string(),
-  confidence: confidenceSchema,
   contextOverheadTokens: z.number().int().nonnegative().nullable(),
+  contextOnUseTokens: z.number().int().nonnegative().nullable(),
+});
+/** A needed category where no catalog item clears the fit bar. */
+export const categoryGapSchema = z.object({
+  category: categorySchema,
+  categoryLabel: z.string(),
+  message: z.string(),
+  detail: z.string(),
 });
 export const hookIdSchema = z.enum(['format-on-edit', 'lint-on-edit', 'typecheck-on-stop']);
 export type HookId = z.infer<typeof hookIdSchema>;
@@ -107,6 +135,8 @@ export const recommendSetupOutputSchema = z.object({
   catalogVersion,
   items: z.array(recommendedItemSchema),
   excluded: z.array(excludedItemSchema),
+  /** Needed categories with no suitable item: nothing is recommended there (a bad fit is worse). */
+  gaps: z.array(categoryGapSchema),
   /** Hook recipes that fit the project's tooling; each needs its own approval. */
   hooks: z.array(hookProposalSchema),
   model: z.object({
@@ -115,7 +145,10 @@ export const recommendSetupOutputSchema = z.object({
     costNote: z.string(),
   }),
   contextOverhead: z.object({
+    /** Always-loaded tokens: MCP tool definitions plus skill, command and agent descriptions. */
     totalTokens: z.number().int().nonnegative(),
+    /** Recommended items whose overhead couldn't be measured. */
+    unknownItems: z.array(z.string()),
     thresholdTokens: z.number().int().positive(),
     warning: z.boolean(),
   }),
@@ -165,6 +198,11 @@ export const generateConfigOutputSchema = z.object({
   files: z.array(generatedFileSchema),
   requiredEnvVars: z.array(envVarNameSchema),
   installCommands: z.array(z.string()),
+  /**
+   * Plugins the install commands add, at project scope (recorded in .claude/settings.json, which
+   * the backup covers). Their downloaded copies live in Claude Code's user-level plugin cache.
+   */
+  plugins: z.array(z.object({ id: itemIdSchema, plugin: z.string(), marketplace: z.string() })),
   /** Approved hooks not added, with the reason (already installed, an existing hook does it). */
   skippedHooks: z.array(z.object({ id: hookIdSchema, reason: z.string() })),
 });
@@ -173,10 +211,18 @@ export const generateConfigOutputSchema = z.object({
 export const verifySetupInputSchema = z.object({ path: projectPath });
 export const verifyResultSchema = z.object({
   item: z.string(),
-  check: z.enum(['server_starts', 'env_present', 'settings_parse', 'duplicate_tools']),
+  check: z.enum([
+    'package_resolves',
+    'server_starts',
+    'env_present',
+    'settings_parse',
+    'duplicate_tools',
+  ]),
   status: z.enum(['pass', 'fail']),
   error: z.string().optional(),
   fix: z.string().optional(),
+  /** Extra context on a pass, e.g. "started with placeholder values for missing variables". */
+  note: z.string().optional(),
 });
 export const verifySetupOutputSchema = z.object({
   catalogVersion,
@@ -202,12 +248,22 @@ export const checkUpdatesOutputSchema = z.object({
 export const rollbackSetupInputSchema = z.object({
   path: projectPath,
   backupId: z.string().min(1).optional(),
+  /** Report what would be restored or removed, and which plugins to uninstall; change nothing. */
+  dryRun: z.boolean().default(false),
 });
 export const rollbackSetupOutputSchema = z.object({
   catalogVersion,
+  dryRun: z.boolean(),
   backupId: z.string(),
   restored: z.array(relativePath),
   removed: z.array(relativePath),
+  /**
+   * Plugins enabled in project settings after the backup was taken. Restoring settings disables
+   * them for this project; the commands remove them completely.
+   */
+  plugins: z.array(z.object({ plugin: z.string(), uninstallCommand: z.string() })),
+  /** Marketplaces declared in project settings after the backup was taken. */
+  marketplaces: z.array(z.object({ name: z.string(), removeCommand: z.string() })),
 });
 
 // sync_catalog

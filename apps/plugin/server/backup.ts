@@ -81,14 +81,63 @@ export async function listBackups(root: string): Promise<string[]> {
     .sort();
 }
 
+function settingsKeys(raw: string | null, key: string, enabledOnly: boolean): string[] {
+  if (raw === null) return [];
+  try {
+    const value = (JSON.parse(raw) as Record<string, unknown>)[key];
+    if (!value || typeof value !== 'object' || Array.isArray(value)) return [];
+    return Object.entries(value)
+      .filter(([, v]) => !enabledOnly || v === true)
+      .map(([k]) => k)
+      .sort();
+  } catch {
+    return [];
+  }
+}
+
+export interface PluginChanges {
+  plugins: Array<{ plugin: string; uninstallCommand: string }>;
+  marketplaces: Array<{ name: string; removeCommand: string }>;
+}
+
+/**
+ * Plugins and marketplaces declared in project settings since the backup (project-scope installs
+ * write `enabledPlugins` and `extraKnownMarketplaces` in .claude/settings.json). Restoring the
+ * settings file disables them for the project; the commands also remove the downloaded copy.
+ */
+export function pluginChanges(backedUp: string | null, current: string | null): PluginChanges {
+  const before = new Set(settingsKeys(backedUp, 'enabledPlugins', true));
+  const beforeMk = new Set(settingsKeys(backedUp, 'extraKnownMarketplaces', false));
+  return {
+    plugins: settingsKeys(current, 'enabledPlugins', true)
+      .filter((p) => !before.has(p))
+      .map((plugin) => ({
+        plugin,
+        uninstallCommand: `claude plugin uninstall ${plugin} --scope project`,
+      })),
+    marketplaces: settingsKeys(current, 'extraKnownMarketplaces', false)
+      .filter((m) => !beforeMk.has(m))
+      .map((name) => ({
+        name,
+        removeCommand: `claude plugin marketplace remove ${name} --scope project`,
+      })),
+  };
+}
+
 /**
  * Restores a backup (latest when no id is given): files that existed are copied back byte for
  * byte, tracked files that didn't exist are removed. Only paths listed in the manifest are touched.
+ * With `dryRun`, nothing changes and the result says what would happen. Either way the result
+ * lists plugins installed since the backup, with the commands that remove them (run those before
+ * restoring: they edit .claude/settings.json, which the restore then puts back exactly).
  */
 export async function rollbackSetup(
   root: string,
   backupId?: string,
-): Promise<{ backupId: string; restored: string[]; removed: string[] }> {
+  dryRun = false,
+): Promise<
+  { backupId: string; dryRun: boolean; restored: string[]; removed: string[] } & PluginChanges
+> {
   const ids = await listBackups(root);
   const id = backupId ?? ids.at(-1);
   if (!id) throw new PluginError('no backups found in .claude/setup-agent/backups');
@@ -96,6 +145,12 @@ export async function rollbackSetup(
   const dir = inside(root, `${BACKUP_DIR}/${id}`);
   const manifest = manifestSchema.parse(
     JSON.parse(await readFile(join(dir, 'manifest.json'), 'utf8')),
+  );
+  const settingsEntry = manifest.files.find((f) => f.path === '.claude/settings.json');
+  const readOrNull = (p: string) => readFile(p, 'utf8').catch(() => null);
+  const changes = pluginChanges(
+    settingsEntry?.existed ? await readOrNull(join(dir, 'files', '.claude/settings.json')) : null,
+    await readOrNull(inside(root, '.claude/settings.json')),
   );
   const restored: string[] = [];
   const removed: string[] = [];
@@ -108,13 +163,15 @@ export async function rollbackSetup(
         throw new PluginError(
           `backup copy of ${f.path} is corrupted; nothing restored past this point`,
         );
-      await mkdir(dirname(dest), { recursive: true });
-      await copyFile(src, dest);
+      if (!dryRun) {
+        await mkdir(dirname(dest), { recursive: true });
+        await copyFile(src, dest);
+      }
       restored.push(f.path);
     } else if (await exists(dest)) {
-      await rm(dest);
+      if (!dryRun) await rm(dest);
       removed.push(f.path);
     }
   }
-  return { backupId: id, restored, removed };
+  return { backupId: id, dryRun, restored, removed, ...changes };
 }

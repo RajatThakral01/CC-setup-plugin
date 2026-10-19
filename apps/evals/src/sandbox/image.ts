@@ -92,3 +92,26 @@ export async function imageClaudeVersion(docker: DockerCli, tag: string): Promis
   if (r.code !== 0 || !v) throw new EvalError(`can't read the Claude Code version in ${tag}`);
   return v;
 }
+
+/** Python snippet that launches headless Chromium through Python Playwright and loads a page. */
+export const PYTHON_PLAYWRIGHT_CHECK =
+  'from playwright.sync_api import sync_playwright\n' +
+  'with sync_playwright() as p:\n' +
+  '    b = p.chromium.launch(args=["--no-sandbox"])\n' +
+  '    pg = b.new_page()\n' +
+  '    pg.set_content("<h1>ok</h1>")\n' +
+  '    print("python-playwright", pg.inner_text("h1"))\n' +
+  '    b.close()\n';
+
+/** Proves the image can run Python Playwright helpers offline (free; part of `selftest`). */
+export async function checkPythonPlaywright(
+  docker: DockerCli,
+  tag: string,
+): Promise<{ ok: boolean; output: string }> {
+  const r = await docker.exec(
+    ['run', '--rm', '--network', 'none', tag, 'python', '-c', PYTHON_PLAYWRIGHT_CHECK],
+    { timeoutMs: 120_000 },
+  );
+  const output = `${r.stdout}${r.stderr}`.trim();
+  return { ok: r.code === 0 && output.includes('python-playwright ok'), output };
+}

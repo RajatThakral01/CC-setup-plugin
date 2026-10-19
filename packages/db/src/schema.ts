@@ -27,6 +27,8 @@ import {
   SOURCES,
   STATUSES,
   type Classification,
+  type ClassificationReview,
+  type ItemComponents,
   type GateResults,
   type EvalSummary,
   type Install,
@@ -83,6 +85,23 @@ export const catalogItems = pgTable(
       .default(sql`'{}'::text[]`),
     firstSeen: timestamp('first_seen', { withTimezone: true }).notNull().defaultNow(),
     lastChecked: timestamp('last_checked', { withTimezone: true }),
+    /**
+     * Products or services the project must use for the item to help (classify-v3); null until
+     * classified with a prompt that asks for them.
+     */
+    technologies: text('technologies').array(),
+    /** Tool, skill, command and agent names with short descriptions, from the gates. */
+    components: jsonb('components').$type<ItemComponents>(),
+    /** Largest skill or command body (tokens) that loads into context when used. */
+    contextOnUseTokens: integer('context_on_use_tokens'),
+    /** Earliest of repo creation and first package publication. */
+    firstPublishedAt: timestamp('first_published_at', { withTimezone: true }),
+    /** Owner who set kind or category in triage; such a field is never reclassified. */
+    kindSetBy: text('kind_set_by'),
+    categorySetBy: text('category_set_by'),
+    technologiesSetBy: text('technologies_set_by'),
+    /** Set when a reclassification changed kind or category, until the owner reviews it. */
+    classificationReview: jsonb('classification_review').$type<ClassificationReview>(),
   },
   (t) => [index('catalog_items_status_idx').on(t.status)],
 );

@@ -28,7 +28,9 @@ Commands:
   discover [--source <name>]...        Run discovery sources, then intake and classification
            [--no-intake] [--no-classify]  Sources: ${SOURCE_NAMES.join(', ')}
   intake                               Re-run the intake filter over stored raw records
-  classify [--limit <n>] [--stale]             Classify pending items; --stale also redoes older prompt versions (costs money)
+  classify [--limit <n>] [--stale | --all]     Classify pending items; --stale also redoes older prompt versions;
+                                       --all re-classifies every non-rejected item (owner-set fields kept),
+                                       --all --item <id>... only those items (costs money)
   gates [--item <id>]... | --pending | --recheck  [--limit <n>]
                                        Run credibility gates 0-3 (Docker sandbox for MCP servers)
   snapshot                             Build, sign and publish a catalog snapshot (SNAPSHOT_STORE)
@@ -102,7 +104,12 @@ async function main(argv: string[]): Promise<number> {
     case 'classify': {
       const { values } = parseArgs({
         args: rest,
-        options: { limit: { type: 'string' }, stale: { type: 'boolean' } },
+        options: {
+          limit: { type: 'string' },
+          stale: { type: 'boolean' },
+          all: { type: 'boolean' },
+          item: { type: 'string', multiple: true },
+        },
       });
       return withContext(async (ctx) => {
         const report = await classifyPending(
@@ -110,6 +117,8 @@ async function main(argv: string[]): Promise<number> {
           {
             ...(values.limit ? { limit: Number(values.limit) } : {}),
             stale: values.stale === true,
+            all: values.all === true,
+            ...(values.item ? { itemIds: values.item } : {}),
           },
         );
         out(JSON.stringify(report, null, 2));

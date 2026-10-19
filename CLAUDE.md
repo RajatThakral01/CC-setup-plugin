@@ -34,9 +34,9 @@ Every other choice: decide, record it in `docs/DECISIONS.md`, keep going. Never 
 - `pnpm install` / `pnpm build` / `pnpm typecheck` / `pnpm lint` / `pnpm test`
 - `docker compose up -d` — local Postgres
 - `pnpm db:migrate` — apply Drizzle migrations; `pnpm db:generate` — create a migration after schema changes
-- `pnpm run pipeline <cmd>` — `seed`, `discover`, `intake`, `classify` (costs money), `gates`, `snapshot`, `worker`, `spend` (`run` is required: pnpm 12 has a built-in `pnpm pipeline`)
+- `pnpm run pipeline <cmd>` — `seed`, `discover`, `intake`, `classify` (costs money; `--all` re-classifies every non-rejected item, keeping owner-set kind/category), `gates`, `snapshot`, `worker`, `spend` (`run` is required: pnpm 12 has a built-in `pnpm pipeline`)
 - `pnpm triage` — local triage UI on TRIAGE_HOST:TRIAGE_PORT (needs TRIAGE_ADMIN_TOKEN)
-- `pnpm evals image` — build the eval image (fixture app, browsers, pinned Claude Code); `pnpm evals selftest` — prove each task's check (free, Docker)
+- `pnpm evals image` — build the eval image (fixture app, browsers incl. Python Playwright, pinned Claude Code); `pnpm evals selftest` — check Python Playwright in the image and prove each task's check (free, Docker)
 - `pnpm evals pilot|run … --confirm-spend` — real eval runs (cost money; only when the owner asks); `pnpm evals plan` / `queue` / `cleanup` — free
 - `pnpm db:health` — check the database connection
 - `pnpm check:models` — fail if any file names an Opus model ID (only exception: `apps/plugin/server/model-rules.ts`)

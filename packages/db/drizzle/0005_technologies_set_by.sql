@@ -1,0 +1,1 @@
+ALTER TABLE "catalog_items" ADD COLUMN "technologies_set_by" text;

@@ -161,6 +161,49 @@ describe('publishSnapshot', () => {
     expect(await t.db.select().from(snapshots)).toHaveLength(2);
   });
 
+  it('publishes technologies, summary, on-use context cost and first publication date', async () => {
+    await seedItem('example-skill', 'recommended_provisional', {
+      kind: 'skill',
+      install: { method: 'skill_copy', url: 'https://github.com/example-org/x', envVars: [] },
+      technologies: ['cloudflare'],
+      description: 'Short description.',
+      contextOverheadTokens: 120,
+      contextOnUseTokens: 2400,
+      firstPublishedAt: new Date('2026-09-01T00:00:00Z'),
+    });
+    await seedItem('example-unclassified', 'recommended_provisional');
+    const build = buildSnapshot(
+      (await t.db.select().from(catalogItems)).map((item) => ({
+        item,
+        scorecard: {
+          id: 1,
+          itemId: item.id,
+          version: '1.0.0',
+          gateResults: {},
+          securityFindings: [],
+          evalSummary: null,
+          confidence: 'high' as const,
+          reviewer: null,
+          reviewedAt: null,
+          updatedAt: now,
+        },
+        pinnedVersion: '1.0.0',
+      })),
+      '2026.10.19-1',
+      now,
+    );
+    const byId = Object.fromEntries(build.snapshot.items.map((i) => [i.id, i]));
+    expect(byId['example-skill']).toMatchObject({
+      technologies: ['cloudflare'],
+      summary: 'Short description.',
+      contextOverheadTokens: 120,
+      contextOnUseTokens: 2400,
+      firstPublishedAt: '2026-09-01T00:00:00.000Z',
+    });
+    // Not classified with classify-v3 yet: technologies unknown (null), not "vendor-neutral".
+    expect(byId['example-unclassified']?.technologies).toBeNull();
+  });
+
   it('skips recommended items that lack install details instead of publishing them', async () => {
     await seedItem('example-incomplete', 'recommended_provisional', { install: null });
     const dir = await mkdtemp(join(tmpdir(), 'ccsa-snapshots-'));

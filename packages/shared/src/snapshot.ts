@@ -46,7 +46,19 @@ export const snapshotItemSchema = z
     version: z.string().min(1),
     install: installSchema.nullable(),
     capabilities: z.array(capabilitySchema),
+    /** Tokens always in context: MCP tool definitions, or skill/command/agent descriptions. */
     contextOverheadTokens: z.number().int().nonnegative().nullable(),
+    /** Extra tokens when used: the largest skill or command body that loads on invocation. */
+    contextOnUseTokens: z.number().int().nonnegative().nullable().default(null),
+    /** One-line plain description (classifier summary or the source's description). */
+    summary: z.string().nullable().default(null),
+    /**
+     * Products, services or libraries the project must use for this item to help (e.g. a Prisma
+     * server → prisma). Empty for tools that work on any project; null when not classified yet.
+     */
+    technologies: z.array(z.string()).nullable().default(null),
+    /** When the repo or package was first published, for "too new to judge" notes. */
+    firstPublishedAt: z.iso.datetime().nullable().default(null),
     supersedes: itemIdSchema.nullable(),
     supersededBy: itemIdSchema.nullable(),
     scorecard: z.object({

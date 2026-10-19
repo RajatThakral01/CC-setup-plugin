@@ -260,6 +260,7 @@ describe('runIntake with pre-ranking classification', () => {
           kind: 'mcp_server',
           category: 'docs',
           stacks: r.stacks,
+          technologies: [],
           summary: 's',
           provenance_guess: 'community',
           relevant: r.relevant,

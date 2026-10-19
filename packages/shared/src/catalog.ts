@@ -47,6 +47,8 @@ export const classificationSchema = z.object({
   kind: kindSchema,
   category: categorySchema.nullable(),
   stacks: z.array(z.string()),
+  /** Products or services the project must use for the tool to help (classify-v3 and later). */
+  technologies: z.array(z.string()).default([]),
   summary: z.string(),
   provenanceGuess: provenanceSchema,
   /** False when the tool is not something a developer adds to a Claude Code setup. */
@@ -56,6 +58,32 @@ export const classificationSchema = z.object({
   classifiedAt: z.iso.datetime(),
 });
 export type Classification = z.infer<typeof classificationSchema>;
+
+const componentSchema = z.object({ name: z.string(), description: z.string() });
+/**
+ * What an item adds to Claude Code, found by the gates: MCP tools (from the sandbox probe) and
+ * the skills, commands and agents in its tree (from frontmatter). Used for classification and
+ * the context-overhead estimate. Descriptions are truncated third-party text.
+ */
+export const itemComponentsSchema = z.object({
+  tools: z.array(componentSchema).default([]),
+  skills: z.array(componentSchema).default([]),
+  commands: z.array(componentSchema).default([]),
+  agents: z.array(componentSchema).default([]),
+  /** The plugin bundles MCP servers whose tools weren't listed. */
+  mcpServers: z.number().int().nonnegative().default(0),
+  collectedAt: z.iso.datetime(),
+});
+export type ItemComponents = z.infer<typeof itemComponentsSchema>;
+
+/** A reclassification that changed kind or category, kept until the owner reviews it. */
+export const classificationReviewSchema = z.object({
+  previousKind: z.string().nullable(),
+  previousCategory: z.string().nullable(),
+  promptVersion: z.string(),
+  changedAt: z.iso.datetime(),
+});
+export type ClassificationReview = z.infer<typeof classificationReviewSchema>;
 
 /** Stack tags that make a tool useful in a Next.js project (owner decision 2026-10-19). */
 export const NEXTJS_SCOPE_TAGS: readonly string[] = ['nextjs', 'react', 'any'];

@@ -1,6 +1,6 @@
 import { join } from 'node:path';
 import { z } from 'zod';
-import type { Snapshot, SnapshotItem } from '@cc-setup-agent/shared';
+import type { Category, ProjectProfile, Snapshot, SnapshotItem } from '@cc-setup-agent/shared';
 import type { HookId } from '@cc-setup-agent/shared';
 import { analyzeProject } from './analyze.js';
 import { unifiedDiff } from './diff.js';
@@ -61,6 +61,7 @@ export interface GenerateResult {
   files: GeneratedFile[];
   requiredEnvVars: string[];
   installCommands: string[];
+  plugins: Array<{ id: string; plugin: string; marketplace: string }>;
   skippedHooks: HookMergeResult['skipped'];
 }
 
@@ -89,15 +90,19 @@ function repoFromUrl(url: string): string | null {
   return m?.[1] ?? null;
 }
 
-/** Commands or steps for items that aren't MCP servers (plugins, skills, manual items). */
+/**
+ * Commands or steps for items that aren't MCP servers (plugins, skills, manual items). Plugins are
+ * installed at project scope (`--scope project`, Claude Code 2.1.303): the marketplace and the
+ * enabled plugin are recorded in .claude/settings.json, which the backup covers (FR-G2).
+ */
 export function installSteps(item: SnapshotItem): string[] {
   const install = item.install;
   if (!install) return [];
   if (install.method === 'plugin' && install.plugin) {
     const repo = repoFromUrl(item.sourceUrl);
     return [
-      ...(repo ? [`claude plugin marketplace add ${repo}`] : []),
-      `claude plugin install ${install.plugin.name}@${install.plugin.marketplace}`,
+      ...(repo ? [`claude plugin marketplace add ${repo} --scope project`] : []),
+      `claude plugin install ${install.plugin.name}@${install.plugin.marketplace} --scope project`,
     ];
   }
   if (install.method === 'skill_copy')
@@ -107,14 +112,89 @@ export function installSteps(item: SnapshotItem): string[] {
   return [];
 }
 
-function managedBlock(items: SnapshotItem[], envVars: string[], version: string): string {
+/** One line per tool on when to use it, by job (category ids are internal and never shown). */
+const WHEN_TO_USE: Record<Category, string> = {
+  docs: 'before writing code against a framework or library API, to check the current docs',
+  browser_testing: 'to check pages in a real browser and to write or run end-to-end tests',
+  unit_testing: 'when writing or running unit and component tests',
+  database: 'for schema, query and migration work',
+  deploy: 'for deployment, hosting and environment configuration',
+  ui_components: 'when building or restyling UI components and pages',
+  auth: 'when working on sign-in, sessions and user management',
+  payments: 'when working on checkout, billing and payment webhooks',
+  email: 'when sending email or editing email templates',
+  cms: 'when working with content models or fetching CMS content',
+  observability: 'when investigating errors, logs or performance problems',
+  code_review: 'to review changes before committing them',
+  git_github: 'for pull requests, issues and repository work',
+  search: 'to look things up on the web',
+};
+
+const KIND_LABEL: Record<string, string> = {
+  mcp_server: 'MCP server',
+  skill: 'skill',
+  plugin: 'plugin',
+  subagent: 'subagent',
+  hook_recipe: 'hook',
+};
+
+/** How to run a package.json script with the project's package manager. */
+function runScriptCommand(pm: ProjectProfile['packageManager'], script: string): string {
+  if (pm === 'pnpm') return `pnpm ${script}`;
+  if (pm === 'yarn') return `yarn ${script}`;
+  if (pm === 'bun') return `bun run ${script}`;
+  return `npm run ${script}`;
+}
+
+/** package.json scripts in file order (at most 15), or empty when unreadable. */
+export function packageScripts(packageJson: string | null): Array<[string, string]> {
+  if (!packageJson) return [];
+  try {
+    const scripts = (JSON.parse(packageJson) as { scripts?: unknown }).scripts;
+    if (!scripts || typeof scripts !== 'object') return [];
+    return Object.entries(scripts)
+      .filter((e): e is [string, string] => typeof e[1] === 'string')
+      .slice(0, 15);
+  } catch {
+    return [];
+  }
+}
+
+export interface BlockContext {
+  version: string;
+  profile: Pick<ProjectProfile, 'packageManager' | 'existingConfig'>;
+  scripts: Array<[string, string]>;
+}
+
+export function managedBlock(items: SnapshotItem[], envVars: string[], ctx: BlockContext): string {
   const lines = [
     BLOCK_START,
-    `## Claude Code setup (managed by setup-agent, catalog ${version})`,
-    '',
-    'Tools chosen for this project:',
-    ...items.map((i) => `- **${i.name}** (${i.category ?? i.kind}): ${i.sourceUrl}`),
+    `## Claude Code setup (managed by setup-agent, catalog ${ctx.version})`,
   ];
+  // Claude Code reads AGENTS.md on its own only while there is no CLAUDE.md, so once this file
+  // exists the rules must be imported (code.claude.com/docs/en/memory). Never copy them here.
+  if (ctx.profile.existingConfig.agentsMd && !ctx.profile.existingConfig.claudeMdImportsAgentsMd)
+    lines.push('', 'Project rules for coding agents live in AGENTS.md:', '', '@AGENTS.md');
+  if (ctx.scripts.length > 0)
+    lines.push(
+      '',
+      '### Commands',
+      '',
+      ...ctx.scripts.map(
+        ([name, cmd]) => `- \`${runScriptCommand(ctx.profile.packageManager, name)}\`: ${cmd}`,
+      ),
+    );
+  if (items.length > 0)
+    lines.push(
+      '',
+      '### Tools',
+      '',
+      ...items.map((i) => {
+        const when = i.category ? `Use it ${WHEN_TO_USE[i.category]}.` : '';
+        const what = i.summary ? ` ${i.summary.trim().replace(/\s+/g, ' ')}` : '';
+        return `- **${i.name}** (${KIND_LABEL[i.kind] ?? i.kind}): ${when}${what}`.trimEnd();
+      }),
+    );
   if (envVars.length > 0)
     lines.push(
       '',
@@ -228,8 +308,8 @@ function file(path: string, before: string | null, after: string): GeneratedFile
 }
 
 /** Recipes for the approved hook ids; refuses ids that don't fit this project's tooling. */
-async function approvedRecipes(root: string, hookIds: HookId[]): Promise<HookRecipe[]> {
-  const available = hookRecipes(await analyzeProject(root));
+function approvedRecipes(profile: ProjectProfile, hookIds: HookId[]): HookRecipe[] {
+  const available = hookRecipes(profile);
   const missing = hookIds.filter((id) => !available.some((r) => r.id === id));
   if (missing.length > 0)
     throw new PluginError(`hook recipe doesn't fit this project's tooling: ${missing.join(', ')}`);
@@ -262,26 +342,34 @@ export async function generateConfig(
 
   const servers: Record<string, Record<string, unknown>> = {};
   const installCommands: string[] = [];
+  const plugins: GenerateResult['plugins'] = [];
   for (const item of items) {
     const entry = item.kind === 'mcp_server' ? mcpServerEntry(item) : null;
     if (entry) servers[item.id] = entry;
     else installCommands.push(...installSteps(item));
+    if (!entry && item.install?.method === 'plugin' && item.install.plugin)
+      plugins.push({
+        id: item.id,
+        plugin: item.install.plugin.name,
+        marketplace: item.install.plugin.marketplace,
+      });
   }
   const requiredEnvVars = [...new Set(items.flatMap((i) => i.install?.envVars ?? []))].sort();
 
-  const [claudeMd, mcpJson, settings] = await Promise.all([
+  const [claudeMd, mcpJson, settings, packageJson] = await Promise.all([
     readText(join(root, 'CLAUDE.md')),
     readText(join(root, '.mcp.json')),
     readText(join(root, '.claude', 'settings.json')),
+    readText(join(root, 'package.json')),
   ]);
-  const files: GeneratedFile[] = [
-    file(
-      'CLAUDE.md',
-      claudeMd,
-      mergeClaudeMd(claudeMd, managedBlock(items, requiredEnvVars, snapshot.version)),
-    ),
-  ];
-  const recipes = hookIds.length > 0 ? await approvedRecipes(root, hookIds) : [];
+  const profile = await analyzeProject(root);
+  const block = managedBlock(items, requiredEnvVars, {
+    version: snapshot.version,
+    profile,
+    scripts: packageScripts(packageJson),
+  });
+  const files: GeneratedFile[] = [file('CLAUDE.md', claudeMd, mergeClaudeMd(claudeMd, block))];
+  const recipes = hookIds.length > 0 ? approvedRecipes(profile, hookIds) : [];
   if (Object.keys(servers).length > 0 || mcpJson !== null) {
     // Validate what we generate; servers the user added by hand are kept as they are.
     mcpJsonSchema.parse({ mcpServers: servers });
@@ -293,15 +381,9 @@ export async function generateConfig(
     const merged = mergeSettingsDetailed(settings, Object.keys(servers), recipes);
     settingsSchema.parse(JSON.parse(merged.content));
     // Our hook groups must match the verified hooks shape (event → [{matcher?, hooks: [...]}]).
-    hooksSchema.parse({
-      PostToolUse: [],
-      Stop: [],
-      ...Object.fromEntries(
-        recipes.map((r) => [r.event, mergeHooks(undefined, [r]).hooks[r.event]]),
-      ),
-    });
+    hooksSchema.parse(mergeHooks(undefined, recipes).hooks);
     skippedHooks = merged.skippedHooks;
     files.push(file('.claude/settings.json', settings, merged.content));
   }
-  return { files, requiredEnvVars, installCommands, skippedHooks };
+  return { files, requiredEnvVars, installCommands, plugins, skippedHooks };
 }

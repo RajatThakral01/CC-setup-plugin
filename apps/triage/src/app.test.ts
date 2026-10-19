@@ -374,3 +374,90 @@ describe('Claude Code changes page', () => {
     expect(mcp).not.toContain('Claude Code 9.9.2');
   });
 });
+
+describe('kind and category', () => {
+  const review = {
+    previousKind: 'plugin',
+    previousCategory: 'code_review',
+    promptVersion: 'classify-v3',
+    changedAt: '2026-10-19T00:00:00.000Z',
+  };
+
+  it('shows kind and category prominently, with the reclassification to review', async () => {
+    await item('example-chat', { kind: 'plugin', category: 'git_github' });
+    await t.db
+      .update(catalogItems)
+      .set({ classificationReview: review })
+      .where(eq(catalogItems.id, 'example-chat'));
+    const page = await (await get('/items/example-chat')).text();
+    expect(page).toMatch(/<span class="cls ">plugin<\/span>/);
+    expect(page).toMatch(/<span class="cls ">git_github<\/span>/);
+    expect(page).toContain('Reclassified (classify-v3):</strong> was');
+    expect(page).toContain('action="/items/example-chat/classification"');
+    const queue = await (await get('/?status=all')).text();
+    expect(queue).toContain('changed: review');
+  });
+
+  it('lets the owner set kind and category, marks them owner-set and audits it', async () => {
+    await item('example-chat', { kind: 'plugin', category: 'git_github' });
+    await t.db
+      .update(catalogItems)
+      .set({ classificationReview: review })
+      .where(eq(catalogItems.id, 'example-chat'));
+    const res = await post('/items/example-chat/classification', {
+      kind: 'plugin',
+      category: 'none',
+      technologies: 'Discord, ',
+      reason: 'Discord bridge: no category fits',
+    });
+    expect(res.status).toBe(303);
+    const [row] = await t.db.select().from(catalogItems).where(eq(catalogItems.id, 'example-chat'));
+    expect(row).toMatchObject({
+      category: null,
+      categorySetBy: 'human:owner',
+      kindSetBy: 'human:owner',
+      technologies: ['discord'],
+      technologiesSetBy: 'human:owner',
+      classificationReview: null,
+    });
+    const page = await (await get('/items/example-chat?saved=classification')).text();
+    expect(page).toContain('Kind, category and technologies saved as owner-set.');
+    expect(page).toContain('value="discord"');
+    expect(page).toContain('category git_github → none');
+  });
+
+  it('refuses an edit without a reason or with an unknown category', async () => {
+    await item('example-x');
+    expect(
+      (
+        await post('/items/example-x/classification', {
+          kind: 'skill',
+          category: 'docs',
+          reason: '',
+        })
+      ).status,
+    ).toBe(400);
+    expect(
+      (
+        await post('/items/example-x/classification', {
+          kind: 'skill',
+          category: 'chat',
+          reason: 'valid reason',
+        })
+      ).status,
+    ).toBe(400);
+  });
+
+  it('filters the queue to items needing classification review', async () => {
+    await item('example-a');
+    await item('example-b');
+    await t.db
+      .update(catalogItems)
+      .set({ classificationReview: review })
+      .where(eq(catalogItems.id, 'example-a'));
+    const text = await (await get('/?status=all&review=1')).text();
+    expect(text).toContain('/items/example-a');
+    expect(text).not.toContain('/items/example-b');
+    expect(text).toMatch(/needs\s+classification review \(1\)/);
+  });
+});

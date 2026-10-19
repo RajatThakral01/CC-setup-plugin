@@ -4,6 +4,8 @@ import {
   checkTransition,
   HUMAN_ONLY_TARGETS,
   type Actor,
+  type Category,
+  type Kind,
   type Status,
 } from '@cc-setup-agent/shared';
 import type { Db, DbOrTx } from './client.js';
@@ -95,5 +97,76 @@ export async function transitionStatus(
       reason: override ? `${reason} | override: ${override}` : reason,
     });
     return { from: row.status, to };
+  });
+}
+
+export class InvalidClassificationEditError extends InvalidTransitionError {}
+
+/**
+ * Owner edit of kind and/or category (triage). Marks the fields as owner-set, so reclassification
+ * never overwrites them, clears any pending reclassification review, and writes an audit event
+ * (same status on both sides; the reason records the change). Human actors only.
+ */
+export async function setClassificationFields(
+  db: Db,
+  itemId: string,
+  fields: { kind?: Kind; category?: Category | null; technologies?: string[] },
+  actor: Actor,
+  reason: string,
+): Promise<void> {
+  actorSchema.parse(actor);
+  if (!actor.startsWith('human:'))
+    throw new InvalidClassificationEditError(
+      itemId,
+      'kind/category',
+      'owner-set',
+      'human actor required',
+    );
+  if (reason.trim() === '')
+    throw new InvalidClassificationEditError(
+      itemId,
+      'kind/category',
+      'owner-set',
+      'a reason is required',
+    );
+  await db.transaction(async (tx) => {
+    const [item] = await tx
+      .select({
+        status: catalogItems.status,
+        kind: catalogItems.kind,
+        category: catalogItems.category,
+      })
+      .from(catalogItems)
+      .where(eq(catalogItems.id, itemId))
+      .for('update');
+    if (!item) throw new ItemNotFoundError(itemId);
+    const changes: string[] = [];
+    const set: Partial<typeof catalogItems.$inferInsert> = { classificationReview: null };
+    if (fields.kind !== undefined) {
+      set.kind = fields.kind;
+      set.kindSetBy = actor;
+      changes.push(`kind ${item.kind ?? 'none'} → ${fields.kind}`);
+    }
+    if (fields.category !== undefined) {
+      set.category = fields.category;
+      set.categorySetBy = actor;
+      changes.push(`category ${item.category ?? 'none'} → ${fields.category ?? 'none'}`);
+    }
+    if (fields.technologies !== undefined) {
+      const techs = [...new Set(fields.technologies.map((t) => t.trim().toLowerCase()))]
+        .filter(Boolean)
+        .sort();
+      set.technologies = techs;
+      set.technologiesSetBy = actor;
+      changes.push(`technologies → ${techs.join(', ') || 'none'}`);
+    }
+    await tx.update(catalogItems).set(set).where(eq(catalogItems.id, itemId));
+    await tx.insert(statusEvents).values({
+      itemId,
+      fromStatus: item.status,
+      toStatus: item.status,
+      actor,
+      reason: `classification set by owner (${changes.join(', ') || 'confirmed as is'}): ${reason.trim()}`,
+    });
   });
 }

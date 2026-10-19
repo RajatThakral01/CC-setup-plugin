@@ -67,6 +67,10 @@ export function buildSnapshot(sources: SnapshotSource[], version: string, now: D
       install: item.install,
       capabilities: item.capabilities,
       contextOverheadTokens: item.contextOverheadTokens,
+      contextOnUseTokens: item.contextOnUseTokens,
+      summary: item.classification?.summary ?? item.description,
+      technologies: item.technologies,
+      firstPublishedAt: item.firstPublishedAt?.toISOString() ?? null,
       supersedes: item.supersedes,
       supersededBy: item.supersededBy,
       scorecard: {

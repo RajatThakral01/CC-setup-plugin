@@ -75,4 +75,26 @@ describe('plugin packaging', () => {
     expect(skill).toMatch(/Approval is per item/);
     expect(skill).toMatch(/backup_setup/);
   });
+
+  it('requires full diffs, one-file-at-a-time writes, and project-scope plugin installs', () => {
+    const skill = read(join(pluginDir, 'skills', 'setup-guide', 'SKILL.md'));
+    // FR-G3: every file's full diff, never a summary.
+    expect(skill).toMatch(/full\*\* diff/);
+    expect(skill).toMatch(/Never summarise a diff or point to "the tool output above"/);
+    // One at a time means one file per step, then wait.
+    expect(skill).toMatch(/write exactly one file, then stop and wait/);
+    expect(skill).toMatch(/Never write two files in one step/);
+    // FR-G2: plugins at project scope.
+    expect(skill).toMatch(/--scope project/);
+    // Fit and credibility stay separate.
+    expect(skill).toMatch(/Keep fit and credibility as two separate lines/);
+    expect(skill).toMatch(/no suitable item in the catalog yet/);
+  });
+
+  it('previews a rollback and tells the user how to uninstall plugins', () => {
+    const rollback = read(join(pluginDir, 'commands', 'setup-rollback.md'));
+    expect(rollback).toMatch(/dryRun: true/);
+    expect(rollback).toMatch(/uninstallCommand/);
+    expect(rollback).toMatch(/dryRun: false/);
+  });
 });

@@ -12,6 +12,8 @@ export interface PluginSettings {
   staleAfterDays: number;
   contextWarnTokens: number;
   verifyTimeoutMs: number;
+  /** PyPI base URL for checking pinned uvx packages in verify_setup. */
+  pypiUrl: string;
 }
 
 export function settingsFromEnv(
@@ -26,5 +28,6 @@ export function settingsFromEnv(
     staleAfterDays: 7,
     contextWarnTokens: Number(nonEmpty(env['CC_SETUP_AGENT_CONTEXT_WARN_TOKENS']) ?? 15000),
     verifyTimeoutMs: 15_000,
+    pypiUrl: (nonEmpty(env['CC_SETUP_AGENT_PYPI_URL']) ?? 'https://pypi.org').replace(/\/+$/, ''),
   };
 }
