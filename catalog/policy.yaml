@@ -1,0 +1,39 @@
+# Approval policy (PRD 9.2a, FR-P1 to FR-P9). Versioned: every status change it makes is audited
+# with actor `policy:<version>`. Change a rule → bump the version. "When unsure, don't recommend":
+# anything not proven here keeps an item out of recommendations; it never creates a manual task.
+version: policy-v1
+
+# Official-vendor tier: provenance from gate 1 (catalog/vendors.yaml orgs, plus Anthropic).
+vendor_tier_provenances: [anthropic, official_vendor]
+
+# Gates that must pass outright (a soft fail is not a pass).
+required_gates: [gate0_hygiene, gate1_provenance, gate2_health, gate3_security]
+
+# Healthy maintenance: a commit within this many days.
+max_days_since_commit: 90
+
+# An item must fit at least one supported stack (MVP: Next.js).
+supported_stacks: [nextjs]
+
+# Real install details per kind. Kinds not listed (subagents, hook recipes, model settings,
+# Claude Code features) have no automatic install path and are never auto-approved.
+install_methods:
+  mcp_server: [npx, uvx, remote]
+  skill: [skill_copy]
+  plugin: [plugin]
+
+# Provisional → recommended: a passing eval and this many days provisional without demotion.
+promotion:
+  min_days_provisional: 60
+
+# Approved items with no commit for this many days go to watchlist.
+demotion:
+  abandoned_days: 180
+
+# Weekly scheduled evals (FR-P7), strictly within WEEKLY_BUDGET_USD and TOTAL_BUDGET_USD.
+auto_evals:
+  cron: '0 6 * * 1' # Mondays 06:00 UTC, after the daily gates and policy runs
+  per_category: 3
+  # Never plan into the last USD 5 of the total budget, so classification keeps working.
+  total_reserve_usd: 5
+  headroom: 0.9

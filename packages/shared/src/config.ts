@@ -155,6 +155,12 @@ export const configSchema = z
     SNAPSHOT_STORE: z.enum(['github-release', 'local']).default('local'),
     /** Where the local snapshot store writes files (relative paths resolve from the working directory). */
     SNAPSHOT_LOCAL_DIR: z.string().min(1).default('.snapshots'),
+    /** Weekly policy digests and scheduled eval plans (PRD FR-P7, FR-P8). */
+    REPORTS_DIR: z.string().min(1).default('reports'),
+    /** Daily approval-policy run (after the gates at GATES_CRON). */
+    POLICY_CRON: z.string().default('0 5 * * *'),
+    /** Weekly digest (Mondays, after the scheduled evals). */
+    DIGEST_CRON: z.string().default('0 9 * * 1'),
     SNAPSHOT_REPO: z.string().optional(),
     TRIAGE_HOST: z.string().default('127.0.0.1'),
     TRIAGE_PORT: z.coerce.number().int().min(1).max(65535).default(4400),

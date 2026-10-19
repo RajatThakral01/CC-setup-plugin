@@ -4,6 +4,7 @@ import {
   and,
   asc,
   catalogItems,
+  desc,
   eq,
   inArray,
   isNull,
@@ -17,13 +18,17 @@ import {
 import { isNextjsRelevant, type AppConfig, type Classification } from '@cc-setup-agent/shared';
 import type { GithubClient } from '../sources/github.js';
 import type { NpmClient } from '../sources/npm.js';
-import { parseSourceUrl } from '../sources/urls.js';
 import {
+  classificationInputHash,
   classifyTool,
   PROMPT_VERSION,
   type ClassifierInput,
   type ClassifyOutcome,
 } from './classifier.js';
+import { loadGoldSet, promptGate, PromptGateError, readGoldFile } from './gold.js';
+import { fetchReadme } from './readme.js';
+
+export { fetchReadme } from './readme.js';
 
 export interface ClassifyDeps {
   db: Db;
@@ -42,48 +47,51 @@ export interface ClassifyReport {
   failed: number;
   costUsd: number;
   stoppedBy?: string;
-  /** Items whose kind or category changed (flagged for review in triage). */
+  /** Items whose kind or category changed (an optional view in triage). */
   changes: ClassificationChange[];
+  /** `--changed`: items skipped because their inputs and prompt version are unchanged. */
+  unchanged: number;
 }
 
 /** Stop after this many consecutive API failures (e.g. a bad key) instead of hammering the API. */
 export const MAX_CONSECUTIVE_FAILURES = 3;
 
-export async function fetchReadme(
-  deps: Pick<ClassifyDeps, 'github' | 'npm' | 'logger'>,
-  sourceUrl: string,
-): Promise<string | null> {
-  const ref = parseSourceUrl(sourceUrl);
-  try {
-    if (ref?.type === 'github') {
-      const folder = ref.path && ref.ref ? { path: ref.path, ref: ref.ref } : undefined;
-      return (await deps.github.getReadme(`${ref.owner}/${ref.repo}`, folder)) ?? null;
-    }
-    if (ref?.type === 'npm') return (await deps.npm.getPackument(ref.name)).readme ?? null;
-  } catch (error) {
-    // A missing README lowers classification quality but must not block it.
-    deps.logger.warn({ sourceUrl, err: error }, 'readme fetch failed; classifying without it');
-  }
-  return null;
-}
-
-/** README lookup plus one classification (with its single retry). */
+/**
+ * README lookup plus one classification (with its single retry). Returns the hash of the inputs
+ * the classifier saw. `readme` skips the lookup when the caller already fetched it.
+ */
 export async function classifySource(
   deps: Pick<ClassifyDeps, 'llm' | 'github' | 'npm' | 'logger' | 'config'>,
   input: Omit<ClassifierInput, 'readme'>,
   ref: string,
-): Promise<ClassifyOutcome> {
-  const readme = await fetchReadme(deps, input.sourceUrl);
-  return classifyTool(
+  options: { model?: string; promptVersion?: string; readme?: string | null } = {},
+): Promise<ClassifyOutcome & { inputHash: string }> {
+  const readme =
+    options.readme !== undefined ? options.readme : await fetchReadme(deps, input.sourceUrl);
+  const outcome = await classifyTool(
     deps.llm,
     { ...input, readme },
     {
-      model: deps.config.MODEL_FAST,
+      model: options.model ?? deps.config.MODEL_FAST,
       maxTokens: deps.config.CLASSIFY_MAX_TOKENS,
       readmeChars: deps.config.CLASSIFY_README_CHARS,
       ref,
+      ...(options.promptVersion ? { promptVersion: options.promptVersion } : {}),
     },
   );
+  return { ...outcome, inputHash: classificationInputHash({ ...input, readme }) };
+}
+
+/**
+ * Refuses to classify with a prompt version that hasn't earned it (PRD FR-D9a): the version in use
+ * is fine; a new one needs a gold-set score at least as good as the current one.
+ */
+export async function assertPromptApplicable(
+  deps: Pick<ClassifyDeps, 'db' | 'config'>,
+  loadGold = async () => loadGoldSet(deps.db, await readGoldFile()),
+): Promise<void> {
+  const gate = await promptGate(deps.db, PROMPT_VERSION, deps.config.MODEL_FAST, loadGold);
+  if (!gate.ok) throw new PromptGateError(`prompt ${PROMPT_VERSION} not applied: ${gate.reason}`);
 }
 
 type ItemRow = typeof catalogItems.$inferSelect;
@@ -156,6 +164,27 @@ export function outOfScopeFor(c: Classification, intakeCreated: boolean): string
   return intakeCreated && !isNextjsRelevant(c) ? ['nextjs'] : [];
 }
 
+/** The human who approved the item into its current recommended status, if any. */
+export async function ownerApprover(
+  db: DbOrTx,
+  item: Pick<ItemRow, 'id' | 'status'>,
+): Promise<string | null> {
+  if (item.status !== 'recommended' && item.status !== 'recommended_provisional') return null;
+  const [event] = await db
+    .select({ actor: statusEvents.actor })
+    .from(statusEvents)
+    .where(
+      and(
+        eq(statusEvents.itemId, item.id),
+        eq(statusEvents.toStatus, item.status),
+        ne(statusEvents.fromStatus, item.status),
+      ),
+    )
+    .orderBy(desc(statusEvents.id))
+    .limit(1);
+  return event?.actor.startsWith('human:') ? event.actor : null;
+}
+
 export async function isIntakeCreated(db: DbOrTx, itemId: string): Promise<boolean> {
   const [row] = await db
     .select({ n: sql<number>`count(*)::int` })
@@ -177,8 +206,18 @@ export async function isIntakeCreated(db: DbOrTx, itemId: string): Promise<boole
  */
 export async function classifyPending(
   deps: ClassifyDeps,
-  options: { limit?: number; stale?: boolean; all?: boolean; itemIds?: string[] } = {},
+  options: {
+    limit?: number;
+    stale?: boolean;
+    all?: boolean;
+    /** Re-classify only items whose inputs (README, components, description) or prompt changed. */
+    changed?: boolean;
+    itemIds?: string[];
+    /** Gold set loader for the prompt gate (tests). */
+    loadGold?: Parameters<typeof assertPromptApplicable>[1];
+  } = {},
 ): Promise<ClassifyReport> {
+  await assertPromptApplicable(deps, options.loadGold);
   const report: ClassifyReport = {
     classified: 0,
     needsManual: 0,
@@ -186,13 +225,15 @@ export async function classifyPending(
     failed: 0,
     costUsd: 0,
     changes: [],
+    unchanged: 0,
   };
+  const replaceAll = options.all === true || options.changed === true;
   const pendingFilter = eq(catalogItems.classificationState, 'pending');
   const items = await deps.db
     .select()
     .from(catalogItems)
     .where(
-      options.all
+      replaceAll
         ? and(
             ne(catalogItems.status, 'rejected'),
             options.itemIds ? inArray(catalogItems.id, options.itemIds) : undefined,
@@ -213,26 +254,42 @@ export async function classifyPending(
   let consecutiveFailures = 0;
   for (const [index, item] of items.entries()) {
     try {
-      const outcome = await classifySource(
-        deps,
-        {
-          name: item.name,
-          publisher: item.publisher,
-          sourceUrl: item.sourceUrl,
-          kindHint: item.kind,
-          description: item.description,
-          components: item.components,
-        },
-        `classify:${item.id}`,
-      );
+      const input = {
+        name: item.name,
+        publisher: item.publisher,
+        sourceUrl: item.sourceUrl,
+        kindHint: item.kind,
+        description: item.description,
+        components: item.components,
+      };
+      const readme = await fetchReadme(deps, item.sourceUrl);
+      if (
+        options.changed &&
+        item.classificationState === 'classified' &&
+        item.classification?.promptVersion === PROMPT_VERSION &&
+        item.classificationInputHash === classificationInputHash({ ...input, readme })
+      ) {
+        report.unchanged++;
+        continue;
+      }
+      const outcome = await classifySource(deps, input, `classify:${item.id}`, { readme });
       consecutiveFailures = 0;
       report.costUsd += outcome.costUsd;
       if (outcome.ok) {
         const intake = await isIntakeCreated(deps.db, item.id);
+        // An owner approval stays valid (M8.3): the kind and category it was approved with are
+        // kept like owner-set fields, so a re-classification can't drop it from the catalog.
+        const approver = await ownerApprover(deps.db, item);
         const update = applyClassification(
-          item,
+          approver
+            ? {
+                ...item,
+                kindSetBy: item.kindSetBy ?? approver,
+                categorySetBy: item.categorySetBy ?? approver,
+              }
+            : item,
           outcome.classification,
-          options.all ? { kind: 'all' } : { kind: 'normal', intakeCreated: intake },
+          replaceAll ? { kind: 'all' } : { kind: 'normal', intakeCreated: intake },
         );
         const changed = update.kind !== item.kind || update.category !== item.category;
         if (changed) {
@@ -247,6 +304,7 @@ export async function classifyPending(
           .update(catalogItems)
           .set({
             ...update,
+            classificationInputHash: outcome.inputHash,
             outOfScope: outOfScopeFor(outcome.classification, intake),
             ...(changed
               ? {
@@ -298,4 +356,48 @@ export async function classifyPending(
     }
   }
   return report;
+}
+
+export type SecondOpinionResult =
+  | { ok: true; costUsd: number; agreesOnCategory: boolean }
+  | { ok: false; costUsd: number; reason: string };
+
+/**
+ * Strong-model second opinion (PRD FR-D9a) with the same prompt version and the same inputs as the
+ * item's current classification. When the inputs changed since, nothing is asked: the item needs
+ * re-classification first (`classify --changed`). Costs money; goes through the ledger.
+ */
+export async function requestSecondOpinion(
+  deps: ClassifyDeps,
+  item: ItemRow,
+): Promise<SecondOpinionResult> {
+  const primary = item.classification;
+  if (!primary || !item.classificationInputHash)
+    return { ok: false, costUsd: 0, reason: 'no current classification with recorded inputs' };
+  const input = {
+    name: item.name,
+    publisher: item.publisher,
+    sourceUrl: item.sourceUrl,
+    kindHint: item.kind,
+    description: item.description,
+    components: item.components,
+  };
+  const readme = await fetchReadme(deps, item.sourceUrl);
+  if (classificationInputHash({ ...input, readme }) !== item.classificationInputHash)
+    return { ok: false, costUsd: 0, reason: 'inputs changed since classification' };
+  const outcome = await classifySource(deps, input, `second-opinion:${item.id}`, {
+    model: deps.config.MODEL_STRONG,
+    promptVersion: primary.promptVersion,
+    readme,
+  });
+  if (!outcome.ok) return { ok: false, costUsd: outcome.costUsd, reason: outcome.error };
+  await deps.db
+    .update(catalogItems)
+    .set({ secondOpinion: { ...outcome.classification, inputHash: outcome.inputHash } })
+    .where(eq(catalogItems.id, item.id));
+  return {
+    ok: true,
+    costUsd: outcome.costUsd,
+    agreesOnCategory: outcome.classification.category === item.category,
+  };
 }

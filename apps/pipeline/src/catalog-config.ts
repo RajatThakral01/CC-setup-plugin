@@ -2,6 +2,7 @@ import { readFile } from 'node:fs/promises';
 import { fileURLToPath } from 'node:url';
 import { parse } from 'yaml';
 import { z } from 'zod';
+import { approvalPolicySchema, categoryRulesSchema } from '@cc-setup-agent/shared';
 
 export const CATALOG_DIR = fileURLToPath(new URL('../../../catalog/', import.meta.url));
 
@@ -35,3 +36,7 @@ export const readVendors = async (dir = CATALOG_DIR) =>
   vendorsFromFile(await readYaml(`${dir}/vendors.yaml`, vendorsFileSchema));
 export const readSources = (dir = CATALOG_DIR) =>
   readYaml(`${dir}/sources.yaml`, sourcesFileSchema);
+export const readPolicy = (dir = CATALOG_DIR) =>
+  readYaml(`${dir}/policy.yaml`, approvalPolicySchema);
+export const readCategoryRules = (dir = CATALOG_DIR) =>
+  readYaml(`${dir}/category-rules.yaml`, categoryRulesSchema);

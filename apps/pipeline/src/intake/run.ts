@@ -24,7 +24,13 @@ import {
   type Source,
 } from '@cc-setup-agent/shared';
 import { PROMPT_VERSION } from '../classify/classifier.js';
-import { classifySource, MAX_CONSECUTIVE_FAILURES, outOfScopeFor } from '../classify/run.js';
+import { PromptGateError } from '../classify/gold.js';
+import {
+  assertPromptApplicable,
+  classifySource,
+  MAX_CONSECUTIVE_FAILURES,
+  outOfScopeFor,
+} from '../classify/run.js';
 import type { NpmClient } from '../sources/npm.js';
 import type { Vendors } from '../catalog-config.js';
 import type { GithubClient, RepoFacts } from '../sources/github.js';
@@ -389,6 +395,14 @@ async function classifyRecords(
   now: Date,
   report: IntakeReport,
 ): Promise<void> {
+  // A prompt version that hasn't passed the gold-set gate is never applied, here either.
+  try {
+    await assertPromptApplicable({ db: deps.db, config: classify.config });
+  } catch (error) {
+    if (!(error instanceof PromptGateError)) throw error;
+    deps.logger.warn({ reason: error.message }, 'pre-ranking classification skipped');
+    return;
+  }
   let remaining = Math.max(0, dailyLimit - (await classifiedToday(deps.db, now)));
   let consecutiveFailures = 0;
   for (const entry of passing) {

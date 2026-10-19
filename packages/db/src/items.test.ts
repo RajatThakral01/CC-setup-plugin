@@ -1,8 +1,14 @@
 import { eq } from 'drizzle-orm';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import { InvalidTransitionError, ItemNotFoundError } from './errors.js';
-import { insertCandidate, setClassificationFields, transitionStatus } from './items.js';
-import { catalogItems, statusEvents } from './schema.js';
+import {
+  insertCandidate,
+  liftVeto,
+  setClassificationFields,
+  transitionStatus,
+  vetoItem,
+} from './items.js';
+import { catalogItems, scorecards, statusEvents } from './schema.js';
 import { createTestDatabase, type TestDatabase } from './testing.js';
 
 let t: TestDatabase;
@@ -80,7 +86,7 @@ describe('transitionStatus', () => {
     ).rejects.toBeInstanceOf(InvalidTransitionError);
     await expect(
       transitionStatus(t.db, id, 'recommended_provisional', 'system', 'auto'),
-    ).rejects.toThrow(/only a human/);
+    ).rejects.toThrow(/only a human or the approval policy/);
     expect(await statusOf(id)).toBe('candidate');
     expect(await events(id)).toHaveLength(1);
   });
@@ -166,5 +172,127 @@ describe('setClassificationFields', () => {
     await expect(
       setClassificationFields(t.db, 'example-missing', { kind: 'skill' }, 'human:owner', 'x'),
     ).rejects.toBeInstanceOf(ItemNotFoundError);
+  });
+});
+
+async function scored(
+  id: string,
+  gate3: 'pass' | 'fail',
+  findings: Array<{ severity: 'high' | 'low'; description: string }> = [],
+) {
+  const g = (result: 'pass' | 'fail') => ({
+    result,
+    evidence: [],
+    checkedAt: new Date().toISOString(),
+  });
+  await t.db.insert(scorecards).values({
+    itemId: id,
+    version: '1.0.0',
+    gateResults: { gate0_hygiene: g('pass'), gate3_security: g(gate3) },
+    securityFindings: findings,
+    confidence: 'high',
+  });
+}
+
+describe('approval by the policy (PRD 9.2a)', () => {
+  it('lets the policy approve, audits the policy actor and records the reviewer', async () => {
+    const id = await newItem();
+    await scored(id, 'pass');
+    await transitionStatus(
+      t.db,
+      id,
+      'recommended_provisional',
+      'policy:policy-v1',
+      'all criteria hold',
+    );
+    expect(await statusOf(id)).toBe('recommended_provisional');
+    expect((await events(id)).at(-1)).toMatchObject({
+      actor: 'policy:policy-v1',
+      reason: 'all criteria hold',
+    });
+    const [card] = await t.db.select().from(scorecards).where(eq(scorecards.itemId, id));
+    expect(card?.reviewer).toBe('policy:policy-v1');
+    expect(card?.reviewedAt).toBeInstanceOf(Date);
+  });
+
+  it('never lets the policy approve a flagged item, with or without a note', async () => {
+    const id = await newItem();
+    await scored(id, 'fail', [{ severity: 'high', description: 'vulnerable dependency' }]);
+    await expect(
+      transitionStatus(t.db, id, 'recommended_provisional', 'policy:policy-v1', 'auto'),
+    ).rejects.toThrow(/never approves flagged/);
+    await expect(
+      transitionStatus(t.db, id, 'recommended_provisional', 'policy:policy-v1', 'auto', {
+        overrideNote: 'fine',
+      }),
+    ).rejects.toThrow(/cannot use override notes/);
+    // A high finding alone (gate 3 not failed) is a flag too.
+    const other = await newItem();
+    await scored(other, 'pass', [{ severity: 'high', description: 'x' }]);
+    await expect(
+      transitionStatus(t.db, other, 'recommended_provisional', 'policy:policy-v1', 'auto'),
+    ).rejects.toThrow(/flagged/);
+    expect(await statusOf(id)).toBe('candidate');
+  });
+
+  it('records the findings an owner accepted with an override', async () => {
+    const id = await newItem();
+    await scored(id, 'fail', [
+      { severity: 'high', description: 'vulnerable dependency' },
+      { severity: 'low', description: 'long description' },
+    ]);
+    await transitionStatus(t.db, id, 'recommended_provisional', 'human:owner', 'reviewed', {
+      overrideNote: 'dev-only dependency',
+    });
+    const [row] = await t.db.select().from(catalogItems).where(eq(catalogItems.id, id));
+    expect(row?.securityOverride).toMatchObject({
+      by: 'human:owner',
+      note: 'dev-only dependency',
+      findings: ['vulnerable dependency'],
+    });
+  });
+});
+
+describe('owner veto (PRD FR-P9)', () => {
+  it('demotes an approved item to candidate and locks it out of policy approval', async () => {
+    const id = await newItem();
+    await scored(id, 'pass');
+    await transitionStatus(t.db, id, 'recommended_provisional', 'policy:policy-v1', 'auto');
+    expect(await vetoItem(t.db, id, 'human:owner', 'misleading README')).toBe('candidate');
+    expect(await statusOf(id)).toBe('candidate');
+    expect((await events(id)).at(-1)).toMatchObject({
+      fromStatus: 'recommended_provisional',
+      toStatus: 'candidate',
+      actor: 'human:owner',
+      reason: 'owner veto: misleading README',
+    });
+    await expect(
+      transitionStatus(t.db, id, 'recommended_provisional', 'policy:policy-v1', 'auto'),
+    ).rejects.toThrow(/vetoed/);
+    // The owner can still approve it by hand, and can lift the veto.
+    await liftVeto(t.db, id, 'human:owner', 'fixed upstream');
+    expect((await events(id)).at(-1)?.reason).toBe('owner veto lifted: fixed upstream');
+    await transitionStatus(t.db, id, 'recommended_provisional', 'policy:policy-v1', 'auto');
+    expect(await statusOf(id)).toBe('recommended_provisional');
+  });
+
+  it('audits a veto on a candidate without changing its status', async () => {
+    const id = await newItem();
+    expect(await vetoItem(t.db, id, 'human:owner', 'not useful')).toBe('candidate');
+    expect((await events(id)).at(-1)).toMatchObject({
+      fromStatus: 'candidate',
+      toStatus: 'candidate',
+      reason: 'owner veto (locked out of auto-approval): not useful',
+    });
+  });
+
+  it('refuses non-human actors and empty reasons', async () => {
+    const id = await newItem();
+    await expect(vetoItem(t.db, id, 'policy:policy-v1', 'x')).rejects.toThrow(/only the owner/);
+    await expect(vetoItem(t.db, id, 'human:owner', ' ')).rejects.toThrow(/reason/);
+    await expect(liftVeto(t.db, id, 'system', 'x')).rejects.toThrow(/only the owner/);
+    await expect(vetoItem(t.db, 'example-missing', 'human:owner', 'x')).rejects.toBeInstanceOf(
+      ItemNotFoundError,
+    );
   });
 });

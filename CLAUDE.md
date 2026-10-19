@@ -34,7 +34,7 @@ Every other choice: decide, record it in `docs/DECISIONS.md`, keep going. Never 
 - `pnpm install` / `pnpm build` / `pnpm typecheck` / `pnpm lint` / `pnpm test`
 - `docker compose up -d` — local Postgres
 - `pnpm db:migrate` — apply Drizzle migrations; `pnpm db:generate` — create a migration after schema changes
-- `pnpm run pipeline <cmd>` — `seed`, `discover`, `intake`, `classify` (costs money; `--all` re-classifies every non-rejected item, keeping owner-set kind/category), `gates`, `snapshot`, `worker`, `spend` (`run` is required: pnpm 12 has a built-in `pnpm pipeline`)
+- `pnpm run pipeline <cmd>` — `seed`, `discover`, `intake`, `classify` (costs money; `--changed` re-classifies only items whose inputs changed; `--all` every non-rejected item, keeping owner-set fields), `classify:eval` (scores a prompt version on the gold set; costs money), `gates`, `policy` (approval policy; `--dry-run`; second opinions cost money), `digest`, `auto-evals` (`--dry-run` free; otherwise `--confirm-spend`), `snapshot`, `worker`, `spend` (`run` is required: pnpm 12 has a built-in `pnpm pipeline`)
 - `pnpm triage` — local triage UI on TRIAGE_HOST:TRIAGE_PORT (needs TRIAGE_ADMIN_TOKEN)
 - `pnpm evals image` — build the eval image (fixture app, browsers incl. Python Playwright, pinned Claude Code); `pnpm evals selftest` — check Python Playwright in the image and prove each task's check (free, Docker)
 - `pnpm evals pilot|run … --confirm-spend` — real eval runs (cost money; only when the owner asks); `pnpm evals plan` / `queue` / `cleanup` — free
@@ -52,7 +52,7 @@ Every other choice: decide, record it in `docs/DECISIONS.md`, keep going. Never 
 - **Model advice to users is different:** the plugin's model recommendation to a user may suggest Opus (complex or architecture-heavy work, budget answer allows it, always with a cost note). Those rules live only in `apps/plugin/server/model-rules.ts`, the single file `pnpm check:models` exempts. Don't name Opus anywhere else.
 - **Budget:** every Anthropic API call goes through the budget ledger; USD 20/week hard cap.
 - **No invented catalog data:** tool names, URLs, versions and metrics come from real API responses or the owner. Test fixtures use obviously fake names under `test/fixtures/`.
-- **Never set `recommended` in code.** Only a human action in triage does that, via `transitionStatus`.
+- **Approval only by policy or owner.** `recommended_provisional` / `recommended` are set only by the versioned approval policy (`catalog/policy.yaml`, actor `policy:<version>`) or an owner action in triage (`human:<name>`), always via `transitionStatus` (audited). No other code sets them. When unsure, don't recommend: uncertainty must never create a manual task for the owner.
 - **Secrets:** read from env, validated by zod at startup. Never commit, log or print them. Never read `.env` or key files.
 - **Verify Claude Code specifics** (plugin layout, manifest, `.mcp.json`, settings keys, hooks, `claude -p` flags) against current official docs / `claude --help` before coding against them; record in `docs/DECISIONS.md`.
 - **Portability:** no absolute paths, hosts or OS-specific commands in app code; everything from config. Storage behind `SnapshotStore` / `ArtifactStore`.

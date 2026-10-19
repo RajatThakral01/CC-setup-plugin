@@ -111,6 +111,15 @@ export function usageFromResponse(usage: Anthropic.Usage): TokenUsage {
   };
 }
 
+/**
+ * Thinking off for a short structured call. Sonnet 5.5 rejects `disabled` and takes
+ * `between_tools` instead (no other field, effort high or below); Haiku 5.5 accepts `disabled`
+ * at effort high or below. Verified against the Claude API reference and a live 400, 2026-10-20.
+ */
+export function thinkingOff(model: string): { type: 'disabled' } | { type: 'between_tools' } {
+  return /sonnet-5-5/.test(model) ? { type: 'between_tools' } : { type: 'disabled' };
+}
+
 export function createLlmClient(options: {
   config: AppConfig;
   guard: BudgetGuard;
@@ -140,7 +149,7 @@ export function createLlmClient(options: {
         max_tokens: request.maxTokens,
         system: [{ type: 'text', text: request.system, cache_control: { type: 'ephemeral' } }],
         messages: [{ role: 'user', content: request.user }],
-        thinking: { type: 'disabled' },
+        thinking: thinkingOff(request.model),
         output_config: {
           effort: 'low',
           format: { type: 'json_schema', schema: jsonSchemaFor(request.schema) },

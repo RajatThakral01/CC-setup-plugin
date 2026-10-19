@@ -12,3 +12,4 @@ keys/
 .artifacts/
 .snapshots/
 .tsbuild/
+reports/

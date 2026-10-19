@@ -1,3 +1,4 @@
+import { createHash } from 'node:crypto';
 import { z } from 'zod';
 import type { LlmClient } from '@cc-setup-agent/core';
 import {
@@ -73,6 +74,13 @@ provenance_guess — anthropic if published by Anthropic; official_vendor if pub
 
 relevant — true if a developer would add it to a Claude Code (or similar coding agent) setup; false for apps that merely use AI, SDKs, tutorials, demos, empty templates, or tools unrelated to software development.`;
 
+/**
+ * Every prompt version that can still be scored or applied (PRD FR-D9a). A new version is added
+ * here next to the old one, scored with `classify:eval`, and applied only if it scores at least as
+ * well as the current one (see gold.ts).
+ */
+export const PROMPTS: Readonly<Record<string, string>> = { [PROMPT_VERSION]: SYSTEM_PROMPT };
+
 export interface ClassifierInput {
   name: string;
   publisher: string | null;
@@ -133,12 +141,41 @@ export type ClassifyOutcome =
   | { ok: true; classification: Classification; costUsd: number }
   | { ok: false; error: string; costUsd: number };
 
+/**
+ * Hash of what the classifier sees about an item (README, components, description), so items are
+ * re-classified only when their inputs change (PRD FR-D9a). The README is hashed in full.
+ */
+export function classificationInputHash(
+  input: Pick<ClassifierInput, 'description' | 'components' | 'readme'>,
+): string {
+  const c = input.components;
+  const list = (xs: Array<{ name: string; description: string }> | undefined) =>
+    (xs ?? []).map((x) => [x.name, x.description]);
+  const material = JSON.stringify([
+    input.description ?? '',
+    input.readme ?? '',
+    c ? [list(c.tools), list(c.skills), list(c.commands), list(c.agents), c.mcpServers] : null,
+  ]);
+  return createHash('sha256').update(material).digest('hex').slice(0, 32);
+}
+
 /** One classification with a single retry on invalid output (plan M3). */
 export async function classifyTool(
   llm: LlmClient,
   input: ClassifierInput,
-  options: { model: string; maxTokens: number; readmeChars: number; ref: string; now?: () => Date },
+  options: {
+    model: string;
+    maxTokens: number;
+    readmeChars: number;
+    ref: string;
+    /** Defaults to the current PROMPT_VERSION. */
+    promptVersion?: string;
+    now?: () => Date;
+  },
 ): Promise<ClassifyOutcome> {
+  const promptVersion = options.promptVersion ?? PROMPT_VERSION;
+  const system = PROMPTS[promptVersion];
+  if (!system) throw new Error(`unknown classifier prompt version ${promptVersion}`);
   const user = buildUserMessage(input, options.readmeChars);
   let costUsd = 0;
   let lastError = 'unknown';
@@ -146,7 +183,7 @@ export async function classifyTool(
     const result = await llm.json({
       purpose: 'classify',
       model: options.model,
-      system: SYSTEM_PROMPT,
+      system,
       user,
       schema: classifierOutputSchema,
       maxTokens: options.maxTokens,
@@ -171,7 +208,7 @@ export async function classifyTool(
           provenanceGuess: p.provenance_guess,
           relevant: p.relevant,
           model: options.model,
-          promptVersion: PROMPT_VERSION,
+          promptVersion,
           classifiedAt: (options.now?.() ?? new Date()).toISOString(),
         },
       };

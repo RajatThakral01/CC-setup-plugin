@@ -7,3 +7,5 @@ export * from './budget.js';
 export * from './mcp-tools.js';
 export * from './scoring.js';
 export * from './snapshot-public-key.js';
+export * from './category-rules.js';
+export * from './policy.js';

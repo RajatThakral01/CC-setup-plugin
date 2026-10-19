@@ -9,6 +9,7 @@
   "references": [
     { "path": "../../packages/shared" },
     { "path": "../../packages/core" },
-    { "path": "../../packages/db" }
+    { "path": "../../packages/db" },
+    { "path": "../evals" }
   ]
 }

@@ -1,0 +1,172 @@
+# Deterministic category rules (PRD FR-D9a): the third opinion next to the two model opinions.
+# Keywords are matched as whole words (or word sequences) in: item name and id, MCP tool / skill /
+# command / agent names, npm and marketplace keywords, and GitHub topics. Each distinct
+# (source, keyword) is one signal. The rules hold an opinion only when one category has at least
+# `min_signals` signals and strictly more than any other. They contradict a model category only
+# when they hold an opinion for another category and give the model's category no signal at all.
+version: rules-v1
+min_signals: 2
+
+categories:
+  docs: [docs, documentation, context7, library docs, api reference]
+  browser_testing:
+    [
+      playwright,
+      puppeteer,
+      cypress,
+      selenium,
+      webdriver,
+      e2e,
+      end to end,
+      browser,
+      chrome devtools,
+      devtools,
+      headless,
+      lighthouse,
+      accessibility,
+      a11y,
+      webapp testing,
+      browser automation,
+    ]
+  unit_testing: [vitest, jest, mocha, unit test, unit tests, unit testing, tdd, test driven]
+  database:
+    [
+      database,
+      databases,
+      sql,
+      postgres,
+      postgresql,
+      mysql,
+      sqlite,
+      mongodb,
+      mongo,
+      redis,
+      prisma,
+      drizzle,
+      supabase,
+      neon,
+      planetscale,
+      convex,
+      orm,
+      dynamodb,
+      firestore,
+      query,
+      schema,
+    ]
+  deploy:
+    [
+      deploy,
+      deployment,
+      deployments,
+      hosting,
+      netlify,
+      railway,
+      render,
+      vercel,
+      cloudflare,
+      workers,
+      serverless,
+      kubernetes,
+      terraform,
+      infrastructure,
+    ]
+  ui_components:
+    [
+      ui,
+      components,
+      component library,
+      design system,
+      shadcn,
+      tailwind,
+      figma,
+      frontend design,
+      css,
+      storybook,
+    ]
+  code_review:
+    [
+      code review,
+      review,
+      pr review,
+      lint,
+      linter,
+      static analysis,
+      sast,
+      security review,
+      sonarqube,
+      codeql,
+      semgrep,
+      vulnerabilities,
+    ]
+  git_github:
+    [github, gitlab, bitbucket, git, pull request, pull requests, issues, jira, linear, ci]
+  observability:
+    [
+      observability,
+      monitoring,
+      logs,
+      logging,
+      metrics,
+      tracing,
+      traces,
+      errors,
+      sentry,
+      datadog,
+      grafana,
+      honeycomb,
+      posthog,
+      analytics,
+      apm,
+    ]
+  search: [search, web search, crawl, crawler, scrape, scraping, fetch, retrieval, rag]
+  auth: [auth, authentication, oauth, login, sso, identity, clerk, auth0, workos, user management]
+  payments: [payments, payment, billing, stripe, checkout, subscriptions, invoices]
+  email: [email, emails, smtp, resend, mail, inbox]
+  cms: [cms, headless cms, content management, sanity, contentful]
+
+# Publishers whose products all belong to one category (one signal each). Owner decisions of
+# 2026-10-19 (Stripe → payments; Clerk, Auth0, WorkOS → auth; Resend → email; Sanity,
+# Contentful → cms) plus single-product vendors from catalog/vendors.yaml. Multi-product vendors
+# (Anthropic, Microsoft, Google, AWS, Vercel, Cloudflare, GitHub…) are deliberately absent.
+vendors:
+  stripe: payments
+  clerk: auth
+  auth0: auth
+  workos: auth
+  resend: email
+  sanity-io: cms
+  contentful: cms
+  getsentry: observability
+  datadog-labs: observability
+  grafana: observability
+  honeycombio: observability
+  posthog: observability
+  supabase: database
+  neondatabase: database
+  prisma: database
+  planetscale: database
+  mongodb: database
+  mongodb-js: database
+  redis: database
+  convex: database
+  netlify: deploy
+  railwayapp: deploy
+  render-oss: deploy
+  exa-labs: search
+  tavily-ai: search
+  firecrawl: search
+  perplexityai: search
+  brave: search
+  meilisearch: search
+  jina-ai: search
+  shadcn-ui: ui_components
+  heroui-inc: ui_components
+  21st-dev: ui_components
+  sonarsource: code_review
+  coderabbitai: code_review
+  greptileai: code_review
+  qodo-ai: code_review
+  browserbase: browser_testing
+  browser-use: browser_testing
+  currents-dev: browser_testing
+  testdino-hq: browser_testing

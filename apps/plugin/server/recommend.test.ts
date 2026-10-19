@@ -159,7 +159,9 @@ describe('recommendSetup', () => {
 
   it('words provisional as approved-before-evals and calls an item new only when it is', () => {
     const ui = r.items.find((i) => i.id === 'example-tailwind-ui')!;
-    expect(ui.tradeoff).toContain('provisional: approved by the maintainer before evals were run');
+    expect(ui.tradeoff).toContain(
+      'provisional: approved on gate, security and classification evidence; not yet confirmed by evals over 60 days',
+    );
     expect(ui.tradeoff).toContain('new: first published 48 days ago');
     const old = recommendSetup(
       {
@@ -174,7 +176,9 @@ describe('recommendSetup', () => {
       answers,
       15000,
     ).items.find((i) => i.id === 'example-tailwind-ui')!;
-    expect(old.tradeoff).toContain('provisional: approved by the maintainer before evals were run');
+    expect(old.tradeoff).toContain(
+      'provisional: approved on gate, security and classification evidence; not yet confirmed by evals over 60 days',
+    );
     expect(old.tradeoff).not.toMatch(/new|too new/);
   });
 

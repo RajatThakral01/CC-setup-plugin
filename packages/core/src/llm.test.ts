@@ -3,6 +3,7 @@ import { z } from 'zod';
 import { parseConfig } from './config.js';
 import {
   createLlmClient,
+  thinkingOff,
   jsonSchemaFor,
   usageFromResponse,
   type BudgetGuard,
@@ -136,5 +137,12 @@ describe('helpers', () => {
       cacheWrite1hTokens: 4,
       cacheReadTokens: 3,
     });
+  });
+});
+
+describe('thinkingOff', () => {
+  it('uses between_tools on Sonnet 5.5 and disabled on Haiku 5.5', () => {
+    expect(thinkingOff('claude-sonnet-5-5')).toEqual({ type: 'between_tools' });
+    expect(thinkingOff('claude-haiku-5-5')).toEqual({ type: 'disabled' });
   });
 });

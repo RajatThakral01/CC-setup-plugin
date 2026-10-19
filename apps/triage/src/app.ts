@@ -4,13 +4,22 @@ import { z } from 'zod';
 import type { Logger } from '@cc-setup-agent/core';
 import { AppError } from '@cc-setup-agent/core';
 import {
+  buildDigest,
   InvalidTransitionError,
   ItemNotFoundError,
+  liftVeto,
   setClassificationFields,
   transitionStatus,
+  vetoItem,
   type Db,
 } from '@cc-setup-agent/db';
-import { CATEGORIES, categorySchema, kindSchema, statusSchema } from '@cc-setup-agent/shared';
+import {
+  CATEGORIES,
+  categorySchema,
+  isoWeekStart,
+  kindSchema,
+  statusSchema,
+} from '@cc-setup-agent/shared';
 import {
   csrfToken,
   MIN_TOKEN_LENGTH,
@@ -29,7 +38,7 @@ import {
   setOutOfScope,
   type QueueFilter,
 } from './queries.js';
-import { changesPage, itemPage, loginPage, queuePage } from './views.js';
+import { changesPage, digestPage, itemPage, loginPage, queuePage } from './views.js';
 
 export interface TriageDeps {
   db: Db;
@@ -59,6 +68,10 @@ const classificationFormSchema = z.object({
     .max(300)
     .regex(/^[A-Za-z0-9.+\-, ]*$/, 'technologies: letters, digits and . + - only')
     .default(''),
+  reason: z.string().trim().min(3, 'a reason is required').max(2000),
+});
+
+const vetoFormSchema = z.object({
   reason: z.string().trim().min(3, 'a reason is required').max(2000),
 });
 
@@ -170,9 +183,13 @@ export function createApp(deps: TriageDeps): Hono<Env> {
       200,
       saved === 'classification'
         ? { kind: 'notice', text: 'Kind, category and technologies saved as owner-set.' }
-        : saved
-          ? { kind: 'notice', text: `Status changed to ${saved}.` }
-          : undefined,
+        : saved === 'veto'
+          ? { kind: 'notice', text: 'Vetoed: locked out of auto-approval.' }
+          : saved === 'unveto'
+            ? { kind: 'notice', text: 'Veto lifted: the policy may approve this item again.' }
+            : saved
+              ? { kind: 'notice', text: `Status changed to ${saved}.` }
+              : undefined,
     );
   });
 
@@ -231,6 +248,43 @@ export function createApp(deps: TriageDeps): Hono<Env> {
     }
     deps.logger.info({ id, kind, category, reviewer: c.get('reviewer') }, 'classification set');
     return c.redirect(`/items/${encodeURIComponent(id)}?saved=classification`, 303);
+  });
+
+  // One-click owner veto (PRD FR-P9): demote and lock out of auto-approval, or lift the lock.
+  for (const [path, action] of [
+    ['veto', vetoItem],
+    ['unveto', liftVeto],
+  ] as const) {
+    app.post(`/items/:id/${path}`, async (c) => {
+      const id = c.req.param('id');
+      const parsed = vetoFormSchema.safeParse(await c.req.parseBody());
+      if (!parsed.success)
+        return renderItem(c, id, 400, {
+          kind: 'error',
+          text: parsed.error.issues.map((i) => i.message).join('; '),
+        });
+      try {
+        await action(deps.db, id, `human:${c.get('reviewer')}`, parsed.data.reason);
+      } catch (error) {
+        if (error instanceof ItemNotFoundError) return c.text('Not found', 404);
+        if (error instanceof InvalidTransitionError)
+          return renderItem(c, id, 409, { kind: 'error', text: error.message });
+        throw error;
+      }
+      deps.logger.info({ id, action: path, reviewer: c.get('reviewer') }, 'owner veto action');
+      return c.redirect(`/items/${encodeURIComponent(id)}?saved=${path}`, 303);
+    });
+  }
+
+  app.get('/digest', async (c) => {
+    const week = z
+      .string()
+      .regex(/^\d{4}-\d{2}-\d{2}$/)
+      .optional()
+      .catch(undefined)
+      .parse(c.req.query('week'));
+    const start = isoWeekStart(week ? new Date(`${week}T00:00:00Z`) : new Date());
+    return c.html(digestPage(await buildDigest(deps.db, start), c.get('reviewer'), c.get('csrf')));
   });
 
   app.post('/items/:id/scope', async (c) => {

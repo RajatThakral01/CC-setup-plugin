@@ -426,6 +426,56 @@ The plan rests on one run per model on one task, so the harness doesn't hard-cod
 
 - Python Playwright `1.64.0` (latest on PyPI, 2026-10-19) in a venv at `/opt/pyenv` (Debian's Python is externally managed; `python3-venv` added), first on `PATH`, with its Chromium in the shared `PLAYWRIGHT_BROWSERS_PATH`. `pnpm evals selftest` now first checks offline that Python Playwright launches Chromium (free). The image tag changes (Dockerfile hash); cache keys don't include the image, so cached baselines stay valid. Before this change they ran without Python Playwright; a re-baseline is advisable before the first real webapp-testing comparison.
 
+## Milestone 8.3 (autonomous curation, owner decision 2026-10-20)
+
+**Principle:** "when unsure, don't recommend" replaces "when unsure, ask the owner". Nothing in the pipeline creates a task for the owner; uncertainty keeps an item out of recommendations. PRD 0.4 (FR-C9, FR-D9a, FR-P1 to FR-P9), plan rule 4 and 6.1, CLAUDE.md updated.
+
+**Status rules**
+
+- Actor `policy:<version>` (e.g. `policy:policy-v1`) may set `recommended_provisional` and `recommended`; `system` still may not. Unblocking stays human-only.
+- New transitions `recommended_provisional → candidate` and `recommended → candidate` (eval regression, owner veto).
+- `transitionStatus` (still the only status path, audited) refuses a policy approval when the item is vetoed, when the latest scorecard has a high/critical finding or a failed gate 3, or when an override note is passed. Approvals also write `reviewer`/`reviewed_at` on the scorecard (PRD 11.3).
+- An owner approval with an override note now records the accepted findings (`security_override`), so the policy blocks only on findings that are new since then.
+- Gates: a provisional item that fails gate 0 in a re-check now goes to watchlist (was rejected), per FR-P6.
+
+**Approval policy** (`catalog/policy.yaml`, `policy-v1`; pure evaluators in `packages/shared/src/policy.ts`)
+
+- Official-vendor tier = provenance `anthropic` or `official_vendor` (gate 1, from `catalog/vendors.yaml`). Criteria, all required: no veto; gates 0–3 all `pass` (a soft fail is not a pass); no high/critical finding; agreed category; last commit ≤ 90 days; install method matching the kind (`mcp_server`: npx/uvx/remote; `skill`: skill_copy; `plugin`: plugin) with a pinned version (never `manual`; subagents and hook recipes have no automatic install path, so they never qualify); fits Next.js (classifier relevant + `nextjs`/`react`/`any`, not out of scope); no losing eval on the pinned version.
+- Community tier: the same plus an eval on the pinned version with verdict `better` against today's incumbent (or no tool). An eval against an older incumbent doesn't count (and makes the item eval-worthy again).
+- Promotion: still meets its tier's criteria + passing eval (`better`, or `equal` against a real incumbent; `equal` against no tool isn't enough) + ≥ 60 days since entering provisional. Owner-approved items are promoted only if they meet the policy's criteria too.
+- Demotion triggers, in order: veto → candidate; new high/critical finding → blocked; gate 0 `fail`, or (for policy approvals) gate 0 no longer `pass` → watchlist; no commit > 180 days → watchlist; eval `worse` on the pinned version → candidate. They apply to owner approvals too (except the gate 0 soft-fail rule, which an owner approval may already have accepted). Approval criteria lapsing (for example a 100-day-old last commit) don't demote; only these triggers do.
+- `pnpm run pipeline policy [--dry-run] [--no-second-opinions] [--item …]` stores the latest decision per item with every criterion (`policy_decisions`); triage shows it.
+
+**Classification without review**
+
+- Three opinions: deterministic rules (`catalog/category-rules.yaml`, `rules-v1`: keywords in item name/id, component names, npm/marketplace keywords, GitHub topics, plus a publisher → category map for single-product vendors only), Haiku (the classification), and a Sonnet second opinion with the same prompt version and inputs. Agreed = owner-set category, or both models return the same kind and category from the same input hash and prompt, and the rules do not point at another category while giving this one zero signals. Requiring the kind to match too is stricter than the brief asked (category only), deliberately: a kind disagreement means we don't know what the thing is.
+- The second opinion is requested only when it is the last missing criterion (community items: after their eval). It costs classification budget.
+- **Sonnet 5.5 thinking:** `thinking: {type: "disabled"}` returns 400 on `claude-sonnet-5-5` (live, 2026-10-20; confirmed in the Claude API reference). The LLM client now sends `{type: "between_tools"}` for Sonnet 5.5 (accepted at effort ≤ high; we use low) and keeps `disabled` for Haiku 5.5. The 29 refused calls were not billed (no ledger rows).
+- Input hash (`classification_input_hash`): sha256 of description + full README + components (names and descriptions). `classify --changed` re-classifies only items whose hash or prompt version changed; the daily curation job runs it. First live run had no hashes, so it re-classified all 140 items once (USD 0.0371).
+- **Owner approvals keep their classification:** re-classification treats the kind and category of an item a human approved (current status) like owner-set fields. Found live: Haiku gave the owner-approved `clerk-skills` no category, which would have dropped it from the next snapshot. Its approved category (`auth`) was restored in the database (the only manual data fix this milestone; the stored classification still shows Haiku's answer).
+- Gold set: owner-locked fields in the database (none exist yet) + `catalog/classification-gold.yaml`, frozen from the owner's 10 approvals (kind and category as approved). Discord and CLAUDE.md management are kind-only: their category at approval (`git_github`, `code_review`) contradicts the M8.2 category definitions, so it is left out rather than guessed. **The brief said "all owner-locked fields"; there were none, hence the approvals.**
+- `classify:eval [--prompt v] [--model strong]` scores a prompt on the gold set (no kind hint, so the gold kind can't leak) and stores it in `classifier_evals`. The prompt gate: the prompt version in use (most items' version) always runs; a different version is applied (classify and intake) only after both have a score on the same gold set and model and the new one is ≥ the current one. Baseline: **classify-v3 with Haiku 6/10 (0.600)**, USD 0.0032; misses are skill-vs-plugin kind confusion (4) and two missing categories.
+- The "needs classification review" filter is now an optional "classification changed" view; triage says nothing is waiting.
+
+**Scheduled evals** (FR-P7; `pnpm run pipeline auto-evals --dry-run | --confirm-spend`, weekly `evals-weekly` job at `auto_evals.cron`, Monday 06:00 UTC)
+
+- Candidates: items where the eval is the missing evidence (`evalNeed`: candidate/watchlist meeting every other criterion, or provisional without a current eval), eval-ready (npx MCP servers with a pinned package, skills at a pinned commit; nothing needing env vars; remote servers excluded because the eval egress allowlist has only npm), in a category with a task set (only `browser_testing` today).
+- Order: Next.js relevance (`nextjs`/`react` > `any`), vendor tier, star velocity, stars, id; up to `per_category` (3) per week.
+- Cost: worst case (Stage A + Stage B) from measured per-model means, plus uncached baseline runs once per incumbent; added while the total fits `min(weekly eval budget left, total left − reserve) × headroom` (reserve USD 5 for classification, headroom 0.9). The harness still pre-flights every batch and run against the ledger, so the caps hold even if the estimate is wrong.
+- The plan is logged and written to `REPORTS_DIR/eval-plan-<week>.md` before anything runs. Scheduled runs need no confirmation; the manual command needs `--confirm-spend` (dry run is free).
+- `apps/pipeline` now depends on `apps/evals` (workspace) for the weekly job; `apps/evals` exports its context module.
+
+**Digest and veto**
+
+- `buildDigest` (`packages/db`): status events of the ISO week by `policy:*`, owner vetoes, and system demotions of approved items, with reasons, gate evidence links and eval summaries; plus the "not approved: why" counts from the latest decisions (candidates and watchlist only).
+- `pnpm run pipeline digest [--week]` and the weekly `digest-weekly` job (Monday 09:00 UTC, previous week) write `REPORTS_DIR/digest-<week>.md` (default `reports/`, gitignored as generated output like `.snapshots/`); triage `/digest?week=` shows the same.
+- Veto (`vetoItem`/`liftVeto`, one transaction each, human only, reason required): demotes a recommended/provisional item to candidate and stores `policy_veto`; on other statuses it is audited with the same status on both sides. Triage has a one-click veto form on every item page, and "Lift veto".
+- Worker: `policy-daily` (`POLICY_CRON`, 05:00 UTC, after the 04:00 gates) runs `classify --changed` then the policy with second opinions.
+
+**Plugin wording:** provisional now reads "approved on gate, security and classification evidence; not yet confirmed by evals over 60 days".
+
+**Live run (2026-10-20):** gates re-run on 3 plugins whose install still matched their pre-M8.2 kind (convex, sanity → `plugin`; honeycomb → `manual`, so not approvable). `classify --changed` 140 items (USD 0.0371, 5 category changes). Second opinions: 29 asked, 29 agree (USD 0.1962). **29 items approved to recommended_provisional by `policy:policy-v1`**; 0 promoted; 0 demoted; 111 held. Scheduled eval plan (not run): 3 browser-testing items, worst case USD 4.13. No snapshot published (owner sees the report first).
+
 ## Dependencies
 
 One line each: why it was added.
@@ -449,3 +499,4 @@ One line each: why it was added.
 - `hono`, `@hono/node-server` — triage web server (plan section 3).
 - `esbuild` (plugin dev) — bundle the plugin's MCP server into one file (plan 4.1).
 - `yaml`, `zod` added to `apps/evals` (already workspace dependencies) — task metadata and tools file parsing.
+- `@cc-setup-agent/evals` (workspace) added to `apps/pipeline` — the weekly scheduled eval job reuses the M9 harness.

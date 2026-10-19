@@ -1,0 +1,47 @@
+# Classification gold set (PRD FR-D9a), frozen 2026-10-20. `classify:eval` scores a prompt version
+# against these entries plus every owner-locked kind/category in the database (owner-locked fields
+# win). A new prompt version is applied only if it scores at least as well as the current one.
+#
+# Source: the owner's 10 approvals in triage (2026-10-19), with kind and category as they were when
+# approved. The owner had locked no fields when this file was made. Two approvals are kind-only:
+# their category at approval (Discord → git_github, CLAUDE.md management → code_review) contradicts
+# the category definitions the owner asked for in M8.2, so the category is left out, not guessed.
+items:
+  - id: anthropics-claude-plugins-official-claude-md-management
+    kind: plugin
+    source: owner-approved 2026-10-19 (category disputed, kind only)
+  - id: anthropics-claude-plugins-official-discord
+    kind: plugin
+    source: owner-approved 2026-10-19 (category disputed, kind only)
+  - id: anthropics-claude-plugins-official-frontend-design
+    kind: plugin
+    category: ui_components
+    source: owner-approved 2026-10-19
+  - id: anthropics-skills-webapp-testing
+    kind: skill
+    category: browser_testing
+    source: owner-approved 2026-10-19
+  - id: clerk-skills
+    kind: skill
+    category: auth
+    source: owner-approved 2026-10-19
+  - id: cloudflare-skills
+    kind: skill
+    category: deploy
+    source: owner-approved 2026-10-19
+  - id: getsentry-sentry-for-ai
+    kind: skill
+    category: observability
+    source: owner-approved 2026-10-19
+  - id: modelcontextprotocol-servers-fetch
+    kind: mcp_server
+    category: search
+    source: owner-approved 2026-10-19
+  - id: supabase-agent-skills
+    kind: skill
+    category: database
+    source: owner-approved 2026-10-19
+  - id: upstash-context7
+    kind: mcp_server
+    category: docs
+    source: owner-approved 2026-10-19

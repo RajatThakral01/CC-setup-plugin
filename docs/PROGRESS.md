@@ -2,9 +2,9 @@
 
 ## Current state
 
-- **Session range:** M8.2 (fixes after the owner's M8 acceptance), owner-requested 2026-10-19. The owner re-runs docs/M8_ACCEPTANCE.md next.
-- **Current milestone:** 8.2 done; owner re-acceptance of M8 pending, then M9 full evaluation (owner go-ahead) and M10.
-- **Total Anthropic API spend to date:** USD 0.3196 (classification USD 0.1747, incl. the M8.2 re-classification USD 0.0388; M9 pilot USD 0.1449). Weekly cap USD 20, total cap USD 40.
+- **Session range:** M8.3 (autonomous curation), owner-requested 2026-10-20.
+- **Current milestone:** 8.3 done. The policy report goes to the owner before any snapshot is published; then M9 full evaluation (now the weekly scheduled job) and M10.
+- **Total Anthropic API spend to date:** USD 0.5560 (classification USD 0.4111, incl. M8.3: re-classification USD 0.0371, second opinions USD 0.1962, gold-set score USD 0.0032; M9 pilot USD 0.1449). Weekly cap USD 20, total cap USD 40.
 - **Remote:** https://github.com/RajatThakral01/CC-setup-plugin — pushed after every milestone; CI green.
 
 ## Milestones
@@ -23,6 +23,7 @@
 | 8.1 | Fixes before acceptance     | Done                                                | M8.1   |
 | 9   | Eval harness                | Built; pilot done; full eval pending owner go-ahead | M9     |
 | 8.2 | Fixes after M8 acceptance   | Done; owner re-acceptance pending                   | M8.2   |
+| 8.3 | Autonomous curation         | Done; snapshot waits for the owner's report         | M8.3   |
 | 10  | End-to-end acceptance       |                                                     |        |
 
 ## Milestone 0 — Repo and tooling (done)
@@ -246,6 +247,50 @@ Tests: 544 passing (+5 real-Docker run in CI). Each item has regression tests:
 
 Details and decisions: DECISIONS "Milestone 8.2".
 
+## Milestone 8.3 — Autonomous curation (done)
+
+Owner decision: no manual review of classifications or tools; "when unsure, don't recommend".
+
+Built:
+
+- **Docs:** PRD 0.4 (FR-C9 policy approval with optional veto, FR-D9a, FR-P1 to FR-P9), plan rule 4, 6.1 and an M8.3 section, CLAUDE.md.
+- **Status rules:** actor `policy:<version>`; demotion to candidate; the policy can't use override notes, approve flagged or vetoed items; approvals record the reviewer.
+- **Classification without review:**
+  - rules + Haiku + Sonnet second opinion must agree;
+  - input hash with `classify --changed`;
+  - gold set (`catalog/classification-gold.yaml` + owner locks) and `classify:eval` with the prompt gate;
+  - owner-approved kind/category kept on re-classification;
+  - Sonnet 5.5 thinking fix (`between_tools`).
+- **Approval policy:**
+  - `catalog/policy.yaml` (`policy-v1`) with pure evaluators;
+  - `pnpm run pipeline policy`;
+  - `policy_decisions` per item;
+  - gate 0 re-check failures of provisional items → watchlist.
+- **Scheduled evals:** `auto-evals` planner/runner within the weekly and total caps (reserve USD 5); the plan is written before spending.
+- **Owner role optional:** weekly digest (`reports/digest-<week>.md`, triage `/digest`), one-click veto and lift-veto, a policy panel on every item page; the review filter is an optional view.
+- **Worker:** `policy-daily` (classify --changed + policy), `evals-weekly`, `digest-weekly`.
+
+Acceptance:
+
+- [x] Every policy rule has a unit test (approve, each refusal, community eval, promotion, each demotion trigger, veto, eval need): `packages/shared/src/policy.test.ts`, `category-rules.test.ts`.
+- [x] The policy never approves security-flagged, vetoed or unknown-install items (unit, `transitionStatus` DB tests, policy run DB tests).
+- [x] Policy changes carry `policy:<version>` and an audited reason (DB tests; live: 29 events by `policy:policy-v1`).
+- [x] A worse-scoring prompt version can't be applied (gold/prompt-gate tests; classify refuses).
+- [x] Scheduled evals stay within the weekly and total caps (incl. reserve) and log the plan before spending (tests).
+- [x] Live policy report prepared for the owner; no snapshot published.
+
+Live (2026-10-20):
+
+- **Classification:** `classify --changed` re-classified all 140 items once (no hashes yet): USD 0.0371.
+- **Gates:** 3 plugins with stale installs re-gated.
+- **Second opinions:** 29 asked, 29 agreed: USD 0.1962.
+- **Policy:** 29 approved to provisional (all official-vendor tier), 0 promoted, 0 demoted, 111 held.
+- **Gold set:** classify-v3 scores 6/10 (USD 0.0032).
+- **Scheduled evals:** 3 browser-testing items planned, worst case USD 4.13; not run.
+
+Tests: 682 passing (+5 real-Docker run in CI). Details: DECISIONS "Milestone 8.3".
+
 ## Open questions
 
-- None.
+- Owner: review the M8.3 policy report, then decide on publishing a snapshot (it would contain 39 provisional items).
+- Owner (optional): blocked items never return automatically (unblocking stays human-only); allow the policy to lift its own security blocks when a later version is clean?

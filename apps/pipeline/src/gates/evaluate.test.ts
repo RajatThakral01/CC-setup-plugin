@@ -306,6 +306,11 @@ describe('statusChangeFor', () => {
     expect(statusChangeFor('recommended', { ...ok, hygieneFailures: ['no licence'] })?.to).toBe(
       'watchlist',
     );
+    // A failed install or start in a re-check moves an approved item to watchlist (PRD FR-P6).
+    expect(
+      statusChangeFor('recommended_provisional', { ...ok, hygieneFailures: ['did not install'] })
+        ?.to,
+    ).toBe('watchlist');
     expect(statusChangeFor('recommended', { ...ok, abandoned: true })?.to).toBe('watchlist');
     expect(statusChangeFor('candidate', { ...ok, abandoned: true })).toBeNull();
     expect(statusChangeFor('candidate', ok)).toBeNull();

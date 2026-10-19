@@ -3,7 +3,14 @@ import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import { createLogger, parseConfig } from '@cc-setup-agent/core';
 import { createTestDatabase, type TestDatabase } from '@cc-setup-agent/db/testing';
 import type { PipelineContext } from './context.js';
-import { DISCOVERY_QUEUE, GATES_QUEUE, startWorker } from './worker.js';
+import {
+  DIGEST_QUEUE,
+  DISCOVERY_QUEUE,
+  EVALS_QUEUE,
+  GATES_QUEUE,
+  POLICY_QUEUE,
+  startWorker,
+} from './worker.js';
 
 let t: TestDatabase;
 beforeAll(async () => {
@@ -40,6 +47,16 @@ describe('startWorker', () => {
           options: expect.objectContaining({ tz: 'UTC' }),
         }),
       ]);
+      // Autonomous curation: daily policy, weekly evals (cron from catalog/policy.yaml) and digest.
+      for (const [queue, cron] of [
+        [POLICY_QUEUE, '0 5 * * *'],
+        [EVALS_QUEUE, '0 6 * * 1'],
+        [DIGEST_QUEUE, '0 9 * * 1'],
+      ] as const) {
+        expect(await boss.getSchedules(queue)).toEqual([
+          expect.objectContaining({ cron, options: expect.objectContaining({ tz: 'UTC' }) }),
+        ]);
+      }
     } finally {
       await boss.stop({ graceful: false });
       await stop();

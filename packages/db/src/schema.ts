@@ -32,7 +32,11 @@ import {
   type GateResults,
   type EvalSummary,
   type Install,
+  type Criterion as PolicyCriterion,
+  type PolicyVeto,
+  type SecondOpinion,
   type SecurityFinding,
+  type SecurityOverride,
 } from '@cc-setup-agent/shared';
 
 export const kindEnum = pgEnum('item_kind', KINDS);
@@ -102,6 +106,14 @@ export const catalogItems = pgTable(
     technologiesSetBy: text('technologies_set_by'),
     /** Set when a reclassification changed kind or category, until the owner reviews it. */
     classificationReview: jsonb('classification_review').$type<ClassificationReview>(),
+    /** Hash of the inputs (README, components, description) the current classification saw. */
+    classificationInputHash: text('classification_input_hash'),
+    /** Strong-model second opinion (PRD FR-D9a), tied to the input hash it saw. */
+    secondOpinion: jsonb('second_opinion').$type<SecondOpinion>(),
+    /** Owner veto: locks the item out of auto-approval (PRD FR-P9). */
+    policyVeto: jsonb('policy_veto').$type<PolicyVeto>(),
+    /** Findings the owner accepted with an override note when approving (never set by the policy). */
+    securityOverride: jsonb('security_override').$type<SecurityOverride>(),
   },
   (t) => [index('catalog_items_status_idx').on(t.status)],
 );
@@ -245,6 +257,42 @@ export const evalQueue = pgTable('eval_queue', {
   reason: text('reason').notNull(),
   queuedAt: timestamp('queued_at', { withTimezone: true }).notNull().defaultNow(),
 });
+
+/** The approval policy's latest decision per item, with every criterion (PRD 9.2a). */
+export const policyDecisions = pgTable('policy_decisions', {
+  itemId: text('item_id')
+    .primaryKey()
+    .references(() => catalogItems.id),
+  policyVersion: text('policy_version').notNull(),
+  /** `approve`, `promote`, `demote` or `hold`. */
+  action: text('action').notNull(),
+  fromStatus: statusEnum('from_status').notNull(),
+  toStatus: statusEnum('to_status'),
+  tier: text('tier'),
+  reason: text('reason').notNull(),
+  criteria: jsonb('criteria').$type<PolicyCriterion[]>().notNull().default([]),
+  /** Whether the decision was applied (false in dry runs or when the transition was refused). */
+  applied: boolean('applied').notNull().default(false),
+  evaluatedAt: timestamp('evaluated_at', { withTimezone: true }).notNull().defaultNow(),
+});
+
+/** Gold-set scores of classifier prompt versions (PRD FR-D9a); gates applying a new prompt. */
+export const classifierEvals = pgTable(
+  'classifier_evals',
+  {
+    id: bigserial('id', { mode: 'number' }).primaryKey(),
+    promptVersion: text('prompt_version').notNull(),
+    model: text('model').notNull(),
+    goldSetHash: text('gold_set_hash').notNull(),
+    goldSize: integer('gold_size').notNull(),
+    correct: integer('correct').notNull(),
+    score: real('score').notNull(),
+    details: jsonb('details').$type<unknown>().notNull().default([]),
+    costUsd: numeric('cost_usd', { precision: 12, scale: 6, mode: 'number' }).notNull().default(0),
+    createdAt: createdAt(),
+  },
+  (t) => [index('classifier_evals_prompt_idx').on(t.promptVersion, t.goldSetHash)],
+);
 
 /** Append-only audit log of every status change (NFR-13). */
 export const statusEvents = pgTable(

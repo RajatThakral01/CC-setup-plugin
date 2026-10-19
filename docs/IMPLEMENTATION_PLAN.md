@@ -19,7 +19,7 @@ Build milestones in order, within the range the owner sets for the session; neve
 1. **Milestone ranges per session.** The owner sets a range of milestones for each session (for example 0–3). Before starting the range, ask every foreseeable question and input in one single batch. Then work through the range continuously without waiting for approval between milestones, but finish each one properly first: acceptance criteria met, typecheck, lint and tests green, `docs/PROGRESS.md` updated, one commit `M<n>: <summary>`. Stop mid-range only for a decision only the owner can make (uncovered product behaviour, a paid service, a dependency with real trade-offs, deleting data), for something only the owner can supply (keys, seed list, Docker), or when tests still fail after several genuine attempts; decide everything else and record it in `docs/DECISIONS.md`. At the end of the range, report what was built per milestone, test results, decisions, deviations and what the next milestone needs, then ask whether to continue.
 2. **Verify Claude Code specifics before using them.** Plugin manifest format, plugin folder layout, `.mcp.json` shape, `settings.json` keys, hook syntax and headless CLI flags change between releases. Check the current official Claude Code documentation and `claude --help` before writing code that depends on them. Record what you verified, with the Claude Code version, in `docs/DECISIONS.md`.
 3. **Never invent catalog data.** Tool names, URLs, versions, stars, downloads and security results must come from real API responses or from the owner. No placeholder tools in the real catalog. Test fixtures must live under `test/fixtures/` and use obviously fake names (for example `example-mcp-alpha`).
-4. **Never set an item to `recommended` in code.** Only the triage flow, by a human action, does that (PRD FR-C9).
+4. **Approval is by policy or owner, never ad hoc.** `recommended_provisional` and `recommended` are set only by the versioned approval policy (`catalog/policy.yaml`, actor `policy:<version>`, PRD 9.2a) or by an owner action in triage (actor `human:<name>`). No other code sets them. `transitionStatus` stays the only way to change status, and every change is audited. When unsure, don't recommend: uncertainty never creates a manual task (PRD FR-C9).
 5. **Secrets.** Never commit secrets. Read them from environment variables validated at startup. Never log tokens or environment variable values.
 6. **Model use.** The product's own Anthropic API calls (tool classification in the pipeline, eval runs in the harness) may use only Claude Haiku and Claude Sonnet, never Opus. Model IDs live in config, not in code (see section 5). This rule is about the code you are building, not about you: the owner may run this Claude Code session on any model, including Opus.
 7. **Spend.** Every Anthropic API call goes through the budget ledger (Milestone 9 introduces the full version; Milestone 3 introduces the minimal one). Hard stop at the weekly cap.
@@ -176,14 +176,14 @@ Nine tables implement the PRD data model (section 11) plus the audit log, raw so
 | `signal_snapshots`   | `item_id`, `captured_at`, `stars`, `star_velocity_7d`, `downloads_7d`, `last_commit_at`, `open_issues`, `median_issue_response_hours`, `contributors`, `mentions_firsthand`, `mentions_total`                                                                                                                                                   | Time series, one row per item per run                                             |
 | `scorecards`         | `item_id`, `version`, `gate_results` (jsonb), `security_findings` (jsonb), `eval_summary` (jsonb), `confidence`, `reviewer`, `reviewed_at`                                                                                                                                                                                                      | Latest per item and version                                                       |
 | `eval_runs`          | `run_id`, `item_id`, `item_version`, `baseline_item_id`, `task_id`, `task_set_version`, `model`, `claude_code_version`, `with_tool`, `success`, `input_tokens`, `output_tokens`, `cost_usd`, `wall_seconds`, `errors`, `logs_ref`                                                                                                               | One row per run                                                                   |
-| `status_events`      | `id`, `item_id`, `from_status`, `to_status`, `actor` (`system` or `human:<name>`), `reason`, `created_at`                                                                                                                                                                                                                                       | Append-only audit log (NFR-13)                                                    |
+| `status_events`      | `id`, `item_id`, `from_status`, `to_status`, `actor` (`system`, `human:<name>` or `policy:<version>`), `reason`, `created_at`                                                                                                                                                                                                                                       | Append-only audit log (NFR-13)                                                    |
 | `budget_ledger`      | `id`, `week_start` (ISO week, UTC), `purpose` (`classify` or `eval`), `model`, `input_tokens`, `output_tokens`, `cost_usd`, `ref`, `created_at`                                                                                                                                                                                                 | Every Anthropic API call writes one row                                           |
 | `snapshots`          | `version`, `created_at`, `item_count`, `sha256`, `published_url`                                                                                                                                                                                                                                                                                | One row per published snapshot                                                    |
 
 ### 6.1 Rules
 
 - Status changes happen only through one function, `transitionStatus(itemId, to, actor, reason)`, which validates the transition and writes `status_events` in the same transaction.
-- Allowed transitions follow PRD FR-C7. `recommended` and `recommended_provisional` require `actor` to start with `human:`.
+- Allowed transitions follow PRD FR-C7. `recommended` and `recommended_provisional` require `actor` to be `human:<name>` or `policy:<version>`. The policy actor can never use a security override note and can never approve a vetoed item (M8.3).
 - Pricing per million tokens for each allowed model lives in config, so cost is computed for every call and stored in the ledger.
 
 ## 7. Milestones 0 to 2: foundations
@@ -449,13 +449,36 @@ Acceptance:
 
 Tests: runner with a fake Claude Code binary returning canned JSON; budget pre-flight and hard stop; baseline cache keys; container cleanup.
 
+### Milestone 8.3: Autonomous curation (owner decision 2026-10-20)
+
+**Goal:** the catalog curates itself (PRD FR-C9, FR-D9a, FR-P1 to FR-P9). "When unsure, don't recommend" replaces "when unsure, ask the owner".
+
+Tasks:
+
+1. Docs: PRD FR-C9, FR-D9a, 9.2a; plan rule 4 and 6.1; `CLAUDE.md`.
+2. Status rules: actor `policy:<version>` may set `recommended_provisional` and `recommended`; demotion back to `candidate` (eval regression, veto). The policy actor never uses override notes and never approves vetoed items.
+3. Classification without review: deterministic category rules (`catalog/category-rules.yaml`), the fast model, and a strong-model second opinion for items eligible on every other criterion; agreement as in FR-D9a. Input hash per item; `classify --changed` re-classifies only changed inputs. Gold set from owner-locked fields and owner approvals; `pnpm run pipeline classify:eval` scores a prompt version and records the score; a new prompt version can't be applied unless it scores at least as well. The "needs classification review" filter becomes an optional view.
+4. Approval policy (`catalog/policy.yaml`, pure evaluators in `packages/shared`, unit-tested): approval, promotion and demotion rules from PRD 9.2a; `pnpm run pipeline policy` evaluates every item, asks for second opinions, applies transitions and stores the latest decision per item.
+5. Weekly automatic evals (FR-P7) within the caps, with the planned batch and estimate logged first.
+6. Weekly digest (`reports/` and a triage page) and the owner veto.
+7. Run the policy on the live catalog and report the result to the owner before publishing a snapshot.
+
+Acceptance:
+
+- [ ] Every policy rule has a unit test (approve, refuse, promote, each demotion trigger, veto).
+- [ ] The policy never approves a security-flagged, vetoed or unknown-install item (unit and DB tests).
+- [ ] Policy status changes carry actor `policy:<version>` and an audited reason.
+- [ ] A prompt version that scores worse than the current one can't be applied (test).
+- [ ] Scheduled evals never exceed the weekly or total cap and log their plan before spending (test).
+- [ ] Live policy report shown to the owner; no snapshot published before that.
+
 ### Milestone 10: End-to-end acceptance
 
 **Goal:** prove the MVP against PRD section 17.2.
 
 Tasks:
 
-1. Run the full loop on live data: discover, gate, triage (owner approves 50+ items), snapshot, install plugin, `/setup` on a fresh Next.js app, verify, rollback.
+1. Run the full loop on live data: discover, gate, approval policy (50+ approved items; owner veto optional), snapshot, install plugin, `/setup` on a fresh Next.js app, verify, rollback.
 2. Deliberately break one MCP server and confirm `verify_setup` reports it.
 3. Mark one installed item `blocked`, publish a snapshot, and confirm the warning appears on the next plugin run.
 4. Write `docs/MVP_REPORT.md`: each PRD 17.2 criterion with pass or fail and evidence, total spend so far, known issues, Phase 2 recommendations.

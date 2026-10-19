@@ -6,8 +6,13 @@ import { resolve } from 'node:path';
 import { parseArgs } from 'node:util';
 import { ConfigError } from '@cc-setup-agent/core';
 import { spendSummary } from '@cc-setup-agent/db';
-import { readVendors } from './catalog-config.js';
+import { isoWeekStart } from '@cc-setup-agent/shared';
+import { readCategoryRules, readPolicy, readVendors } from './catalog-config.js';
+import { evaluatePrompt, loadGoldSet, readGoldFile } from './classify/gold.js';
 import { classifyPending } from './classify/run.js';
+import { runAutoEvals } from './policy/auto-evals.js';
+import { writeDigest } from './policy/jobs.js';
+import { formatPolicyReport, runPolicy } from './policy/run.js';
 import { createContext, type PipelineContext } from './context.js';
 import { formatDiscoveryReport, runDiscoveryJob } from './discovery/job.js';
 import { SOURCE_NAMES, type SourceName } from './discovery/run.js';
@@ -28,9 +33,18 @@ Commands:
   discover [--source <name>]...        Run discovery sources, then intake and classification
            [--no-intake] [--no-classify]  Sources: ${SOURCE_NAMES.join(', ')}
   intake                               Re-run the intake filter over stored raw records
-  classify [--limit <n>] [--stale | --all]     Classify pending items; --stale also redoes older prompt versions;
-                                       --all re-classifies every non-rejected item (owner-set fields kept),
-                                       --all --item <id>... only those items (costs money)
+  classify [--limit <n>] [--stale | --changed | --all]
+                                       Classify pending items (costs money); --stale also redoes older prompt
+                                       versions; --changed only items whose README, components or description
+                                       changed (input hash); --all every non-rejected item (owner-set fields
+                                       kept), --all --item <id>... only those items
+  classify:eval [--prompt <version>] [--model strong]
+                                       Score a prompt version on the gold set and record it (costs money)
+  policy [--dry-run] [--no-second-opinions] [--item <id>]...
+                                       Run the approval policy (catalog/policy.yaml); second opinions cost money
+  digest [--week YYYY-MM-DD]           Write the weekly policy digest to REPORTS_DIR
+  auto-evals --dry-run | --confirm-spend
+                                       Plan (and run) this week's scheduled eval batch
   gates [--item <id>]... | --pending | --recheck  [--limit <n>]
                                        Run credibility gates 0-3 (Docker sandbox for MCP servers)
   snapshot                             Build, sign and publish a catalog snapshot (SNAPSHOT_STORE)
@@ -107,6 +121,7 @@ async function main(argv: string[]): Promise<number> {
         options: {
           limit: { type: 'string' },
           stale: { type: 'boolean' },
+          changed: { type: 'boolean' },
           all: { type: 'boolean' },
           item: { type: 'string', multiple: true },
         },
@@ -117,12 +132,93 @@ async function main(argv: string[]): Promise<number> {
           {
             ...(values.limit ? { limit: Number(values.limit) } : {}),
             stale: values.stale === true,
+            changed: values.changed === true,
             all: values.all === true,
             ...(values.item ? { itemIds: values.item } : {}),
           },
         );
         out(JSON.stringify(report, null, 2));
         return report.failed > 0 ? 1 : 0;
+      });
+    }
+    case 'classify:eval': {
+      const { values } = parseArgs({
+        args: rest,
+        options: { prompt: { type: 'string' }, model: { type: 'string' } },
+      });
+      return withContext(async (ctx) => {
+        const gold = await loadGoldSet(ctx.db, await readGoldFile());
+        const r = await evaluatePrompt({ ...ctx, llm: ctx.llm() }, gold, {
+          ...(values.prompt ? { promptVersion: values.prompt } : {}),
+          ...(values.model === 'strong' ? { model: ctx.config.MODEL_STRONG } : {}),
+        });
+        out(
+          `${r.promptVersion} with ${r.model}: ${r.correct}/${r.goldSize} correct (score ${r.score.toFixed(3)}), gold set ${r.goldSetHash}, USD ${r.costUsd.toFixed(4)}`,
+        );
+        for (const d of r.details.filter((x) => !x.correct))
+          out(`  wrong: ${d.id} (${d.source}): ${d.mismatches.join('; ')}`);
+        return 0;
+      });
+    }
+    case 'policy': {
+      const { values } = parseArgs({
+        args: rest,
+        options: {
+          'dry-run': { type: 'boolean' },
+          'no-second-opinions': { type: 'boolean' },
+          item: { type: 'string', multiple: true },
+        },
+      });
+      return withContext(async (ctx) => {
+        const secondOpinions = !values['no-second-opinions'];
+        const apply = !values['dry-run'];
+        const report = await runPolicy(
+          {
+            db: ctx.db,
+            config: ctx.config,
+            logger: ctx.logger,
+            github: ctx.github,
+            npm: ctx.npm,
+            policy: await readPolicy(),
+            rules: await readCategoryRules(),
+            ...(secondOpinions ? { llm: ctx.llm() } : {}),
+          },
+          { apply, secondOpinions, ...(values.item ? { itemIds: values.item } : {}) },
+        );
+        out(formatPolicyReport(report, apply));
+        return report.outcomes.some((o) => o.error) ? 1 : 0;
+      });
+    }
+    case 'digest': {
+      const { values } = parseArgs({ args: rest, options: { week: { type: 'string' } } });
+      return withContext(async (ctx) => {
+        const week = isoWeekStart(values.week ? new Date(`${values.week}T00:00:00Z`) : new Date());
+        out(`Digest written to ${await writeDigest(ctx, week)}`);
+        return 0;
+      });
+    }
+    case 'auto-evals': {
+      const { values } = parseArgs({
+        args: rest,
+        options: { 'dry-run': { type: 'boolean' }, 'confirm-spend': { type: 'boolean' } },
+      });
+      return withContext(async (ctx) => {
+        const { plan, results } = await runAutoEvals(
+          { ...ctx, policy: await readPolicy(), rules: await readCategoryRules() },
+          {
+            trigger: 'manual',
+            dryRun: values['dry-run'] === true,
+            confirmSpend: values['confirm-spend'] === true,
+            onPlan: async (_p, text) => {
+              out(text);
+            },
+          },
+        );
+        for (const r of results)
+          out(
+            `${r.id}: ${r.error ?? (r.result?.status === 'done' ? r.result.summary.verdict : `queued (${r.result?.status === 'queued' ? r.result.reason : ''})`)}`,
+          );
+        return plan.batch.length > 0 && results.some((r) => r.error) ? 1 : 0;
       });
     }
     case 'gates': {

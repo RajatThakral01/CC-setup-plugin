@@ -6,8 +6,10 @@ import {
   eq,
   evalRuns,
   insertCandidate,
+  policyDecisions,
   scorecards,
   statusEvents,
+  transitionStatus,
 } from '@cc-setup-agent/db';
 import { createTestDatabase, type TestDatabase } from '@cc-setup-agent/db/testing';
 import { createApp } from './app.js';
@@ -25,6 +27,7 @@ afterAll(async () => {
   await t?.cleanup();
 });
 beforeEach(async () => {
+  await t.db.delete(policyDecisions);
   await t.db.delete(evalRuns);
   await t.db.delete(scorecards);
   await t.db.delete(statusEvents);
@@ -383,7 +386,7 @@ describe('kind and category', () => {
     changedAt: '2026-10-19T00:00:00.000Z',
   };
 
-  it('shows kind and category prominently, with the reclassification to review', async () => {
+  it('shows kind and category prominently, with the reclassification as information only', async () => {
     await item('example-chat', { kind: 'plugin', category: 'git_github' });
     await t.db
       .update(catalogItems)
@@ -395,7 +398,10 @@ describe('kind and category', () => {
     expect(page).toContain('Reclassified (classify-v3):</strong> was');
     expect(page).toContain('action="/items/example-chat/classification"');
     const queue = await (await get('/?status=all')).text();
-    expect(queue).toContain('changed: review');
+    expect(queue).toContain('reclassified');
+    // No review is required any more (M8.3): the page says so.
+    expect(page).toContain('nothing is waiting for you');
+    expect(queue).not.toContain('changed: review');
   });
 
   it('lets the owner set kind and category, marks them owner-set and audits it', async () => {
@@ -448,7 +454,7 @@ describe('kind and category', () => {
     ).toBe(400);
   });
 
-  it('filters the queue to items needing classification review', async () => {
+  it('keeps the reclassified-items filter as an optional view', async () => {
     await item('example-a');
     await item('example-b');
     await t.db
@@ -458,6 +464,74 @@ describe('kind and category', () => {
     const text = await (await get('/?status=all&review=1')).text();
     expect(text).toContain('/items/example-a');
     expect(text).not.toContain('/items/example-b');
-    expect(text).toMatch(/needs\s+classification review \(1\)/);
+    expect(text).toMatch(/classification changed \(1, optional view\)/);
+  });
+});
+
+describe('approval policy and owner veto (PRD FR-P8, FR-P9)', () => {
+  it('shows the policy decision with every criterion and both opinions', async () => {
+    await item('example-a');
+    await t.db.insert(policyDecisions).values({
+      itemId: 'example-a',
+      policyVersion: 'policy-v1',
+      action: 'hold',
+      fromStatus: 'candidate',
+      tier: 'community',
+      reason: 'not approved',
+      criteria: [
+        { id: 'gates_pass', ok: true, detail: 'gates 0, 1, 2, 3 pass' },
+        { id: 'eval_beats_incumbent', ok: false, detail: 'no eval yet' },
+      ],
+      applied: false,
+    });
+    const page = await (await get('/items/example-a')).text();
+    expect(page).toContain('Approval policy');
+    expect(page).toContain('eval_beats_incumbent: no eval yet');
+    expect(page).toContain('community tier');
+    expect(page).toContain('no second opinion yet');
+    expect(page).toContain('action="/items/example-a/veto"');
+  });
+
+  it('vetoes in one click: demotes, locks and audits; and the veto can be lifted', async () => {
+    await item('example-a');
+    await scorecard('example-a', 'pass');
+    await t.db
+      .update(catalogItems)
+      .set({ status: 'recommended_provisional' })
+      .where(eq(catalogItems.id, 'example-a'));
+    expect((await post('/items/example-a/veto', { reason: '' })).status).toBe(400);
+    const res = await post('/items/example-a/veto', { reason: 'misleading README' });
+    expect(res.status).toBe(303);
+    const [row] = await t.db.select().from(catalogItems).where(eq(catalogItems.id, 'example-a'));
+    expect(row?.status).toBe('candidate');
+    expect(row?.policyVeto).toMatchObject({ by: 'human:owner', reason: 'misleading README' });
+    const page = await (await get('/items/example-a?saved=veto')).text();
+    expect(page).toContain('Vetoed: locked out of auto-approval.');
+    expect(page).toContain('action="/items/example-a/unveto"');
+    expect((await post('/items/example-a/unveto', { reason: 'fixed upstream' })).status).toBe(303);
+    const [after] = await t.db.select().from(catalogItems).where(eq(catalogItems.id, 'example-a'));
+    expect(after?.policyVeto).toBeNull();
+    // CSRF still applies.
+    expect((await post('/items/example-a/veto', { reason: 'x y z' }, { csrf: 'bad' })).status).toBe(
+      403,
+    );
+  });
+
+  it('shows the weekly digest with what the policy did and why', async () => {
+    await item('example-a');
+    await scorecard('example-a', 'pass');
+    await transitionStatus(
+      t.db,
+      'example-a',
+      'recommended_provisional',
+      'policy:policy-v1',
+      'official-vendor tier, all criteria hold',
+    );
+    const page = await (await get('/digest')).text();
+    expect(page).toContain('Catalog digest, week of');
+    expect(page).toContain('/items/example-a');
+    expect(page).toContain('official-vendor tier, all criteria hold');
+    expect(page).toContain('Nothing here needs action');
+    expect((await get('/digest', false)).status).toBe(303);
   });
 });

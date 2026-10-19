@@ -5,6 +5,7 @@ import {
   desc,
   eq,
   inArray,
+  policyDecisions,
   rawSourceRecords,
   scorecards,
   evalRuns,
@@ -24,7 +25,7 @@ export interface QueueFilter {
   scope: Scope;
   category?: string;
   q?: string;
-  /** Only items whose kind or category a reclassification changed (awaiting owner review). */
+  /** Only items whose kind or category a reclassification changed (optional view). */
   review?: boolean;
 }
 
@@ -152,12 +153,14 @@ export interface ItemDetail {
   snapshot: typeof signalSnapshots.$inferSelect | null;
   /** Eval runs with this item as the tool under test, newest first (plan M9). */
   evalRuns: Array<typeof evalRuns.$inferSelect>;
+  /** The approval policy's latest decision for this item (PRD 9.2a). */
+  decision: typeof policyDecisions.$inferSelect | null;
 }
 
 export async function getItemDetail(db: Db, id: string): Promise<ItemDetail | null> {
   const [item] = await db.select().from(catalogItems).where(eq(catalogItems.id, id));
   if (!item) return null;
-  const [cards, events, records, snaps, runs] = await Promise.all([
+  const [cards, events, records, snaps, runs, decisions] = await Promise.all([
     db
       .select()
       .from(scorecards)
@@ -190,6 +193,7 @@ export async function getItemDetail(db: Db, id: string): Promise<ItemDetail | nu
       .where(eq(evalRuns.itemId, id))
       .orderBy(desc(evalRuns.createdAt))
       .limit(50),
+    db.select().from(policyDecisions).where(eq(policyDecisions.itemId, id)),
   ]);
   return {
     item,
@@ -198,6 +202,7 @@ export async function getItemDetail(db: Db, id: string): Promise<ItemDetail | nu
     records,
     snapshot: snaps[0] ?? null,
     evalRuns: runs,
+    decision: decisions[0] ?? null,
   };
 }
 
@@ -227,7 +232,7 @@ export async function listChanges(db: Db, flag?: string) {
     .limit(200);
 }
 
-/** Items awaiting review after a reclassification changed their kind or category. */
+/** Items whose kind or category a reclassification changed (an optional view, never required). */
 export async function countNeedingReview(db: Db): Promise<number> {
   const [row] = await db
     .select({ n: sql<number>`count(*)::int` })

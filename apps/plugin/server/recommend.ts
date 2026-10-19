@@ -431,7 +431,9 @@ function tradeoff(item: SnapshotItem, now: Date): string {
   if (item.install && item.install.envVars.length > 0)
     parts.push(`needs ${item.install.envVars.join(', ')}`);
   if (item.status === 'recommended_provisional')
-    parts.push('provisional: approved by the maintainer before evals were run');
+    parts.push(
+      'provisional: approved on gate, security and classification evidence; not yet confirmed by evals over 60 days',
+    );
   if (item.firstPublishedAt) {
     const days = Math.floor((now.getTime() - Date.parse(item.firstPublishedAt)) / DAY_MS);
     if (days >= 0 && days < NEW_ITEM_DAYS)

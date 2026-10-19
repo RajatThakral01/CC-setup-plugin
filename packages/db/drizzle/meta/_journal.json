@@ -43,6 +43,13 @@
       "when": 1792418910503,
       "tag": "0005_technologies_set_by",
       "breakpoints": true
+    },
+    {
+      "idx": 6,
+      "version": "7",
+      "when": 1792444127607,
+      "tag": "0006_autonomous_curation",
+      "breakpoints": true
     }
   ]
 }

@@ -406,9 +406,10 @@ export function statusChangeFor(
   }
   if (outcome.hygieneFailures.length > 0) {
     const reason = `gate 0: ${outcome.hygieneFailures.join('; ')}`;
-    if (status === 'candidate' || status === 'watchlist' || status === 'recommended_provisional')
-      return { to: 'rejected', reason };
-    if (status === 'recommended') return { to: 'watchlist', reason };
+    if (status === 'candidate' || status === 'watchlist') return { to: 'rejected', reason };
+    // An approved item that fails install or start in a re-check goes to watchlist (PRD FR-P6).
+    if (status === 'recommended' || status === 'recommended_provisional')
+      return { to: 'watchlist', reason };
   }
   if (outcome.abandoned && (status === 'recommended' || status === 'recommended_provisional')) {
     return { to: 'watchlist', reason: `gate 2: no commit for more than 180 days` };

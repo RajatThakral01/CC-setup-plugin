@@ -44,7 +44,7 @@ Allow about 40 minutes. Commands starting with `!` can be typed into Claude Code
       - every item shows **Fit** (strong or good, with a reason) and **Credibility** (the gates) on separate lines;
       - no Cloudflare deploy item for a Vercel deploy; no Discord or CLAUDE.md-management item filed under git or code review;
       - a needed category with no fitting item says "no suitable item in the catalog yet" and recommends nothing there;
-      - provisional items say "approved by the maintainer before evals were run"; "new" appears only for items published within the last 180 days;
+      - provisional items say "approved on gate, security and classification evidence; not yet confirmed by evals over 60 days"; "new" appears only for items published within the last 180 days;
       - the context overhead counts skills and plugins too (their descriptions), and names anything it couldn't measure;
     - the model suggestion has a cost note (budget `low` plus a goal like "re-architect the data layer" gives Opus; other answers give Sonnet);
     - hooks proposed for a fresh app: `lint-on-edit` and `typecheck-on-stop` (`format-on-edit` only if you add Prettier). Keep both;

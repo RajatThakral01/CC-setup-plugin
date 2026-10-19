@@ -22,6 +22,7 @@ This is draft v0.1 of the PRD for a Claude Code plugin that recommends, builds a
 | 0.1 | 19 Oct 2026 | First full draft |
 | 0.2 | 19 Oct 2026 | FR-D10: candidate intake filter and daily cap (owner decision) |
 | 0.3 | 19 Oct 2026 | FR-D10: classify before ranking; relevance-first priority; out-of-scope marking (owner decision) |
+| 0.4 | 20 Oct 2026 | Autonomous curation (owner decision): FR-C9 becomes policy approval with optional owner veto; approval policy FR-P1 to FR-P9; classification agreement (FR-D9a); "when unsure, don't recommend" replaces "when unsure, ask the owner" |
 
 ## 2. Executive summary
 
@@ -107,7 +108,7 @@ The primary v1 user is an individual developer who already uses Claude Code and 
 | Returning user | Used Claude Code months ago, setup is stale | Know what changed and what to replace | Breaking a setup that mostly works | Primary |
 | Newcomer to Claude Code | Knows how to code, new to agentic tools | A safe, simple, explained starting point | Installing something risky they don't understand | Secondary |
 | Team lead | Standardising Claude Code across a team repo | One reviewed, shared project config | Security and inconsistency across developers | Later (Phase 3) |
-| Catalog maintainer (internal) | The product owner reviewing candidates | A fast triage queue with evidence | Recommending something bad or malicious | Primary (internal) |
+| Catalog maintainer (internal, optional) | The product owner; reads a weekly digest of what the approval policy did | Trust the automated curation without reviewing it | Recommending something bad or malicious | Optional (internal): the catalog runs without them; they may veto |
 
 ## 6. Competitive landscape and differentiation
 
@@ -162,17 +163,17 @@ The core journey is interview, analyse, recommend, approve, apply, verify; every
 | UC-06 | Compare two tools | "X vs Y for testing" | Side-by-side scorecard and eval results | 2 |
 | UC-07 | Set up from a goal only | Empty folder, user describes the project | Setup recommended for the stated stack before code exists | 2 |
 | UC-08 | Team baseline | Team lead runs setup in a shared repo | Project-scope config committed for the team, no user-scope changes | 3 |
-| UC-09 | Triage new candidates (internal) | Daily discovery run | Ranked candidate queue with gate results for the maintainer | 1 |
+| UC-09 | Automated curation (internal) | Daily discovery, gates and policy runs; weekly evals | Items approved or demoted by the approval policy with audited reasons; a weekly digest; optional one-click owner veto | 1 |
 
 ## 7. Product scope and phased release plan
 
-v1 is one Claude Code plugin for one stack, with a small hand-reviewed catalog and evals in at least one category; everything else waits behind a measurable gate.
+v1 is one Claude Code plugin for one stack, with a small, automatically curated catalog and evals in at least one category; everything else waits behind a measurable gate.
 
 ### 7.1 In scope (MVP)
 
 - Claude Code only, on macOS, Linux and Windows (WSL).
 - One project stack (proposed: Next.js website).
-- Catalog of 50 to 100 reviewed items: MCP servers, skills, plugins, subagents, hook recipes, model settings.
+- Catalog of 50 to 100 approved items (approval policy or owner): MCP servers, skills, plugins, subagents, hook recipes, model settings.
 - Discovery sources: Claude Code changelog, MCP Registry, GitHub, official marketplaces.
 - Credibility gates 0 to 3, plus outcome evals for at least one category.
 - `/setup`, `verify_setup`, `/setup-rollback`, `/explain`.
@@ -181,7 +182,7 @@ v1 is one Claude Code plugin for one stack, with a small hand-reviewed catalog a
 
 - Other coding agents, team features, paid tiers.
 - Web crawling of blogs and articles.
-- Automatic `recommended` status without human approval.
+- Any approval path that needs a human review step. Approval is automatic and evidence-based (FR-P1 to FR-P9); the owner can only veto.
 
 ### 7.3 Roadmap
 
@@ -206,6 +207,7 @@ Requirements are grouped by module; P0 is required for MVP, P1 for the release a
 | FR-D7 | Pull discussion signals from Hacker News (Algolia API) and Reddit (r/ClaudeAI, r/ClaudeCode). Used as signals, never as the sole basis for a recommendation. | P1 |
 | FR-D8 | Deduplicate records into one entity per tool, keyed by canonical repo URL or package name. | P0 |
 | FR-D9 | Use an LLM to classify each new entity: category, what it does, supported stacks, official vs community. Store the classification with its model and prompt version. | P0 |
+| FR-D9a | Classification needs no review. Three opinions: deterministic rules (tool, skill and command names, package keywords, topics, vendor), the fast model, and a strong-model second opinion (only for items policy-eligible on every other criterion). A category is agreed only when both model opinions match and the rules don't contradict them; an owner-set category counts as agreed. Re-classify only when an item's inputs (README, components, description) change. A gold set built from owner-locked fields and owner approvals scores each prompt version; a new prompt version may be applied only if it scores at least as well as the current one. | P0 |
 | FR-D10 | Every raw source record is stored. An entity enters with status `candidate` only when it passes the intake filter: not a fork, not archived, has a licence and a description, and at least 10 stars (repos owned by orgs in `catalog/vendors.yaml` and MCP Registry verified publishers skip the star threshold); MCP Registry entries must also be the latest version and have a repo URL. Up to 300 filter-passing records per day are classified first (within the classification budget), so relevance is known before ranking. At most 30 new candidates per day, prioritised by relevance to the MVP stack (Next.js), then vendor allowlist, then star velocity, then stars. Accepted items that are not relevant to a stack are marked out of scope for it (hidden from that stack's triage queue by default, never deleted or rejected). Stored raw records are re-checked daily and become candidates once they pass. Discovery never sets status `recommended`. | P0 |
 | FR-D11 | Generic blog and listicle crawling is out of scope for v1. | P0 |
 
@@ -218,14 +220,30 @@ Gates run in order from cheapest to most expensive. An item failing a hard gate 
 | FR-C0 | Hygiene | License present, README, real code (not empty or a bare fork), installs and starts | Hard fail: `rejected` | P0 |
 | FR-C1 | Provenance | Official vendor vs community; publisher verified in registry; author's other maintained projects | Soft: lowers confidence | P0 |
 | FR-C2 | Health | Last commit, release cadence, issue response time, contributor count, download trend | Soft; no commit in 180 days = `watchlist` | P0 |
-| FR-C2a | Anti-gaming | Star-to-download ratio, star bursts, stars from new accounts | Flag for manual review | P1 |
+| FR-C2a | Anti-gaming | Star-to-download ratio, star bursts, stars from new accounts | Flag; a flagged item is not policy-eligible | P1 |
 | FR-C3 | Security | Scan tool descriptions for hidden instructions; list capabilities (shell, file, network); dependency vulnerabilities (OSV); install scripts; sandboxed run with network monitoring | Hard fail on injection or undisclosed exfiltration: `blocked` | P0 |
 | FR-C4 | Real-user signal | Count independent first-hand reports across sources; LLM classifies first-hand vs hype | Soft | P1 |
 | FR-C5 | Outcome eval | See 9.3 | Determines `recommended` vs incumbent | P0 for MVP stacks |
 | FR-C6 | Scorecard | Store each gate result with evidence links, timestamps and an overall confidence (low, medium, high) | n/a | P0 |
 | FR-C7 | Status lifecycle | `candidate`, `watchlist`, `recommended (provisional)`, `recommended`, `deprecated`, `blocked`, `rejected` | n/a | P0 |
 | FR-C8 | Re-check | Re-run gates 0 to 3 every 30 days on all recommended items, and on any new release | Downgrade on failure | P0 |
-| FR-C9 | Human approval | In v1, `recommended` requires maintainer approval in the triage queue | n/a | P0 |
+| FR-C9 | Policy approval with optional owner veto | `recommended_provisional` and `recommended` are set by the versioned approval policy (9.2a), actor `policy:<version>`, or by the owner. The owner never has to review anything; a one-click veto demotes an item and locks it out of auto-approval. Existing owner approvals and locks stay valid. Every status change goes through one audited function | n/a | P0 |
+
+### 9.2a Approval policy (autonomous curation)
+
+Guiding principle: when unsure, don't recommend. Uncertainty never creates a manual task; it keeps an item out of recommendations.
+
+| ID | Requirement | Priority |
+| --- | --- | --- |
+| FR-P1 | The approval policy is versioned and lives in one config file (`catalog/policy.yaml`). Every status change it makes uses actor `policy:<version>` and records the reason and the evidence. The policy is unit-tested rule by rule. | P0 |
+| FR-P2 | Official-vendor tier (provenance `anthropic` or `official_vendor`, from `catalog/vendors.yaml`): an item becomes `recommended_provisional` automatically only if all hold: gates 0 to 3 pass; zero security flags; an agreed category (FR-D9a); a commit within 90 days; real install details matching its kind (pinned version; never `manual` or unknown); fit to at least one supported stack; no losing eval result; no owner veto. | P0 |
+| FR-P3 | Community tier: everything in FR-P2, plus an eval result for its pinned version showing it beats the current incumbent in its category (or the no-tool baseline when there is no incumbent). | P0 |
+| FR-P4 | An item becomes `recommended` only when it still meets its tier's criteria, has a passing eval result for its pinned version (beats the incumbent or the no-tool baseline, or equals another incumbent), and has been `recommended_provisional` for at least 60 days without demotion. | P0 |
+| FR-P5 | Never auto-approve: security-flagged items, items that would need an override note, items with an unknown install method, vetoed items. | P0 |
+| FR-P6 | Automatic demotion, each with an audited reason: a new security finding → `blocked`; no commit for 180 days → `watchlist`; an eval regression against the incumbent → `candidate`; a failed install or start in a re-check → `watchlist`. | P0 |
+| FR-P7 | Weekly automatic evals: a scheduled job picks the most promising eval-ready candidates per category (relevance, vendor, star velocity) and runs the two-stage harness strictly within the weekly and total caps. The planned batch and its cost estimate are logged before anything is spent. Scheduled runs need no `--confirm-spend`; manual runs still do. | P0 |
+| FR-P8 | Weekly digest: a markdown file in `reports/` and a triage page listing what the policy approved, promoted and demoted, and why, with evidence links. | P0 |
+| FR-P9 | Owner veto: one click in triage demotes an item (to `candidate` when it was recommended) and locks it out of auto-approval, with a written reason; the owner can lift the veto. | P0 |
 
 ### 9.3 Eval harness
 
@@ -348,7 +366,7 @@ Five core entities: the catalog item, its signals over time, its scorecard, eval
 | `security_findings` | object\[\] | Severity, description, evidence |
 | `eval_summary` | object | Success rate, tokens, time, overhead vs incumbent |
 | `confidence` | enum | `low`, `medium`, `high` |
-| `reviewer`, `reviewed_at` | string, datetime | Human approval record |
+| `reviewer`, `reviewed_at` | string, datetime | Approval record: `human:<name>` or `policy:<version>` |
 
 ### 11.4 `eval_run`
 
@@ -395,7 +413,7 @@ The eval harness is highlighted because it is the differentiator. Data flows one
 | Catalog database | PostgreSQL | Relational entities plus time-series signals |
 | Eval sandbox | Docker containers, egress logged | Isolation and repeatability |
 | Snapshot distribution | Signed JSON file on object storage or a release | Cheap, cacheable, verifiable |
-| Triage UI | Minimal internal web page | Maintainer approves or rejects candidates |
+| Triage UI | Minimal internal web page | Weekly digest, policy evidence per item, optional owner veto |
 
 These are proposals for discussion, not decisions.
 
@@ -450,13 +468,13 @@ The two risks most likely to sink the product are recommending something harmful
 
 | ID | Risk | Likelihood | Impact | Mitigation |
 | --- | --- | --- | --- | --- |
-| R1 | A recommended tool turns out malicious | Low | Critical | Security gate, pinned versions, human approval, signed catalog, `blocked` status with warnings, re-checks every 30 days |
+| R1 | A recommended tool turns out malicious | Low | Critical | Security gate, pinned versions, evidence-based approval policy (never auto-approves flagged items) with owner veto, signed catalog, `blocked` status with warnings, re-checks every 30 days |
 | R2 | Eval costs exceed budget | High | High | Evals only for shortlisted items; weekly cap; small task sets; reuse incumbents' baseline runs |
 | R3 | Claude Code config format changes break generated setups | High | High | Changelog ingestion (FR-D1), schema validation (FR-G9), version gating (NFR-9) |
 | R4 | Anthropic or a large marketplace ships the same feature | Medium | High | Focus on eval depth and a few stacks; keep data portable; position as complement |
 | R5 | Benchmarks don't reflect real-world use, so recommendations mislead | Medium | High | Tasks drawn from real projects; publish task sets; track rollback rate as a reality check |
-| R6 | Catalog goes stale because one person maintains it | High | Medium | Automate the funnel; keep the catalog small; staleness warnings; limit stacks |
-| R7 | LLM classification or sentiment errors | Medium | Medium | Store prompt and model versions; human review before `recommended`; spot-check samples weekly |
+| R6 | Catalog goes stale because one person maintains it | High | Medium | Fully automated curation (approval policy, weekly evals, automatic demotion); the owner is optional; staleness warnings; limit stacks |
+| R7 | LLM classification or sentiment errors | Medium | Medium | Store prompt and model versions; two model opinions plus deterministic rules must agree; gold-set scoring before a new prompt version is applied; uncertain items stay out of recommendations |
 | R8 | Source API terms or rate limits change | Medium | Medium | Multiple sources per signal; caching; respect terms of service |
 | R9 | Users distrust automatic writes | Medium | Medium | Per-item approval, diffs, backups, one-command rollback |
 | R10 | Gaming by tool authors once the product matters | Low (early) | Medium | Anti-gaming checks; evals over popularity; no paid placement |
@@ -490,7 +508,7 @@ The product depends on Claude Code's plugin, MCP and headless modes staying avai
 - Users already have Claude Code installed and working.
 - Users accept a curated, opinionated catalog over an exhaustive one.
 - A small benchmark (5 to 10 tasks per category) gives a useful signal.
-- One maintainer can review the weekly triage queue in under 2 hours.
+- The catalog needs no human review; the owner reads a weekly digest when they choose to.
 - MVP covers one stack (for example, Next.js websites); stacks two and three follow in Phase 2.
 
 ## 17. Analytics, monitoring and acceptance criteria
@@ -516,7 +534,7 @@ MVP is accepted when a new user can complete the core journey end to end on a su
 - [ ] Backups are created and `/setup-rollback` restores them exactly.
 - [ ] No secret values appear in any generated file, log or tool response.
 - [ ] `verify_setup` correctly reports a deliberately broken MCP server.
-- [ ] Catalog contains at least 50 reviewed items for the MVP stack, each with a complete scorecard.
+- [ ] Catalog contains at least 50 approved items (policy or owner) for the MVP stack, each with a complete scorecard.
 - [ ] At least one category shows eval results against an incumbent.
 - [ ] A `blocked` item installed in a test project triggers the warning on the next run.
 - [ ] The recommended setup beats the default setup on the MVP benchmark tasks.
@@ -547,4 +565,6 @@ MVP is accepted when a new user can complete the core journey end to end on a su
 | Incumbent | The item currently recommended in a category, which candidates must beat |
 | Context overhead | Tokens the tool's definitions add to every request |
 | Tool poisoning | Hidden instructions in an MCP tool's description that try to manipulate the agent |
-| Provisional | Recommended, but too new to judge long-term maintenance |
+| Provisional | Approved on gate, security and classification evidence (and, for community items, an eval win), but without 60 days of track record and a passing eval yet |
+| Approval policy | The versioned rules that approve, promote and demote catalog items automatically (FR-P1 to FR-P9) |
+| Veto | An owner action that demotes an item and locks it out of auto-approval |

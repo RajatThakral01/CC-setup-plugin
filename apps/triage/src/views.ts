@@ -8,7 +8,7 @@ import {
   type GateResult,
   type Status,
 } from '@cc-setup-agent/shared';
-import type { claudeCodeChanges } from '@cc-setup-agent/db';
+import type { claudeCodeChanges, Digest, DigestEntry } from '@cc-setup-agent/db';
 import {
   MVP_STACK,
   securityFlagged,
@@ -68,6 +68,7 @@ export function layout(title: string, body: View, reviewer?: string, csrf?: stri
       <body>
         <header>
           <a href="/">Candidate queue</a>
+          <a href="/digest">Weekly digest</a>
           <a href="/changes">Claude Code changes</a>
           ${
             reviewer
@@ -136,8 +137,8 @@ export function queuePage(
         </select>
         <input name="q" placeholder="search id or name" value="${filter.q ?? ''}" />
         <label style="display:inline;font-weight:400"
-          ><input type="checkbox" name="review" value="1" ${filter.review ? 'checked' : ''} /> needs
-          classification review (${needingReview})</label
+          ><input type="checkbox" name="review" value="1" ${filter.review ? 'checked' : ''} />
+          classification changed (${needingReview}, optional view)</label
         >
         <button>Filter</button>
         ${
@@ -175,7 +176,8 @@ export function queuePage(
                   <span class="cls ${e.item.category ? '' : 'none'}"
                     >${e.item.category ?? 'no category'}</span
                   >
-                  ${e.item.classificationReview ? html`<span class="badge soft_fail">changed: review</span>` : ''}
+                  ${e.item.classificationReview ? html`<span class="badge not_run">reclassified</span>` : ''}
+                  ${e.item.policyVeto ? html`<span class="badge fail">vetoed</span>` : ''}
                   ${e.item.categorySetBy ? html`<span class="badge pass">owner-set</span>` : ''}
                 </td>
                 <td>${e.item.provenance ?? '?'}</td>
@@ -287,7 +289,9 @@ function classificationPanel(d: ItemDetail, csrf: string) {
         ? html`<div class="review">
             <strong>Reclassified (${review.promptVersion}):</strong> was
             ${review.previousKind ?? 'none'} / ${review.previousCategory ?? 'none'}, now
-            ${item.kind ?? 'none'} / ${item.category ?? 'none'}. Confirm or correct it below.
+            ${item.kind ?? 'none'} / ${item.category ?? 'none'}. For information only: the approval
+            policy approves a category only when both model opinions and the rules agree. You may
+            lock a correction below, but nothing is waiting for you.
           </div>`
         : ''
     }
@@ -312,6 +316,68 @@ function classificationPanel(d: ItemDetail, csrf: string) {
     </form>`;
 }
 
+/** The approval policy's latest decision, every criterion, opinions and the owner veto. */
+function policyPanel(d: ItemDetail, csrf: string) {
+  const { item, decision } = d;
+  const second = item.secondOpinion;
+  const veto = item.policyVeto;
+  return html`<section>
+    <h2>Approval policy</h2>
+    ${
+      decision
+        ? html`<p>
+              <span
+                class="badge ${decision.action === 'hold' ? 'not_run' : decision.action === 'demote' ? 'fail' : 'pass'}"
+                >${decision.action}${decision.toStatus ? ` → ${decision.toStatus}` : ''}</span
+              >
+              ${decision.policyVersion} ·
+              ${decision.evaluatedAt.toISOString().slice(0, 16).replace('T', ' ')}
+              UTC${decision.tier ? ` · ${decision.tier.replace('_', '-')} tier` : ''}${decision.applied ? '' : ' · not applied'}
+            </p>
+            ${
+              decision.criteria.length > 0
+                ? html`<ul>
+                    ${decision.criteria.map(
+                      (cr) =>
+                        html`<li>
+                          <span class="badge ${cr.ok ? 'pass' : 'fail'}"
+                            >${cr.ok ? 'ok' : 'no'}</span
+                          >
+                          ${cr.id}: ${cr.detail}
+                        </li>`,
+                    )}
+                  </ul>`
+                : html`<p>${decision.reason}</p>`
+            }`
+        : html`<p class="muted">The policy has not evaluated this item yet.</p>`
+    }
+    <p class="muted">
+      Opinions:
+      ${item.classification ? `${item.classification.model} says ${item.classification.kind}/${item.classification.category ?? 'none'}` : 'not classified'}${second ? `; ${second.model} says ${second.kind}/${second.category ?? 'none'}` : '; no second opinion yet'}.
+    </p>
+    ${
+      veto
+        ? html`<div class="flag">
+            <h3>Vetoed</h3>
+            <p>
+              By ${veto.by.replace(/^human:/, '')} on ${veto.at.slice(0, 10)}: ${veto.reason}. The
+              policy will not approve this item while the veto stands.
+            </p>
+            <form method="post" action="/items/${item.id}/unveto" class="filters">
+              <input type="hidden" name="csrf" value="${csrf}" />
+              <input name="reason" required minlength="3" placeholder="reason (audit log)" />
+              <button>Lift veto</button>
+            </form>
+          </div>`
+        : html`<form method="post" action="/items/${item.id}/veto" class="filters">
+            <input type="hidden" name="csrf" value="${csrf}" />
+            <input name="reason" required minlength="3" size="40" placeholder="why (audit log)" />
+            <button>Veto: demote and lock out of auto-approval</button>
+          </form>`
+    }
+  </section>`;
+}
+
 export function itemPage(
   d: ItemDetail,
   reviewer: string,
@@ -334,7 +400,7 @@ export function itemPage(
     html`<p><a href="/">← queue</a></p>
       <h1>${item.name} <span class="badge">${item.status}</span></h1>
       ${message ? html`<div class="${message.kind}">${message.text}</div>` : ''}
-      ${classificationPanel(d, csrf)}
+      ${classificationPanel(d, csrf)} ${policyPanel(d, csrf)}
       ${
         flagged
           ? html`<div class="flag">
@@ -544,6 +610,94 @@ export function changesPage(
           </section>`,
       )}
       ${changes.length === 0 ? html`<p class="muted">No change notes yet. Run discovery.</p>` : ''}`,
+    reviewer,
+    csrf,
+  );
+}
+
+function digestList(title: string, list: DigestEntry[]) {
+  return html`<section>
+    <h2>${title} (${list.length})</h2>
+    ${
+      list.length === 0
+        ? html`<p class="muted">None this week.</p>`
+        : html`<table>
+            <thead>
+              <tr>
+                <th>Item</th>
+                <th>Change</th>
+                <th>Why</th>
+                <th>Evidence</th>
+              </tr>
+            </thead>
+            <tbody>
+              ${list.map(
+                (e) =>
+                  html`<tr>
+                    <td>
+                      <a href="/items/${e.itemId}">${e.name}</a>
+                      <div class="muted">
+                        ${e.at.toISOString().slice(0, 16).replace('T', ' ')} · ${e.actor}
+                      </div>
+                    </td>
+                    <td>${e.from ?? 'new'} → ${e.to}</td>
+                    <td>${e.reason}</td>
+                    <td>
+                      <a href="${safeHref(e.sourceUrl)}" rel="noreferrer noopener">source</a>
+                      ${e.evidence.map((x) => html` · <a href="${safeHref(x.url)}" rel="noreferrer noopener">${x.label}</a>`)}
+                      ${e.evalSummary ? html`<div class="muted">eval: ${e.evalSummary.verdict} vs ${e.evalSummary.baselineItemId ?? 'no tool'}</div>` : ''}
+                    </td>
+                  </tr>`,
+              )}
+            </tbody>
+          </table>`
+    }
+  </section>`;
+}
+
+/** The weekly digest (PRD FR-P8): what the policy did and why. Read-only; veto is per item. */
+export function digestPage(d: Digest, reviewer: string, csrf: string): View {
+  const prev = new Date(Date.parse(`${d.weekStart}T00:00:00Z`) - 7 * 86_400_000)
+    .toISOString()
+    .slice(0, 10);
+  return layout(
+    'Weekly digest',
+    html`<h1>Catalog digest, week of ${d.weekStart}</h1>
+      <p>
+        What the approval policy did up to ${d.weekEnd} (UTC). Nothing here needs action; open an
+        item to veto it. <a href="/digest?week=${prev}">← previous week</a>
+      </p>
+      <p class="muted">
+        ${d.latestPolicyRun ? `Latest policy run ${d.latestPolicyRun.version} at ${d.latestPolicyRun.at.toISOString().slice(0, 16).replace('T', ' ')} UTC (${d.latestPolicyRun.evaluated} items).` : 'The policy has not run yet.'}
+        Eval runs this week: ${d.evals.runs} (USD ${d.evals.costUsd.toFixed(4)}). Spend this week:
+        USD ${d.spend.weekUsd.toFixed(4)}.
+      </p>
+      ${digestList('Approved', d.approved)} ${digestList('Promoted', d.promoted)}
+      ${digestList('Demoted', d.demoted)} ${digestList('Owner vetoes', d.vetoes)}
+      <section>
+        <h2>Not approved: why</h2>
+        ${
+          d.heldByCriterion.length === 0
+            ? html`<p class="muted">No held items.</p>`
+            : html`<table>
+                <thead>
+                  <tr>
+                    <th>Failing criterion</th>
+                    <th>Items</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  ${d.heldByCriterion.map(
+                    (h) =>
+                      html`<tr>
+                        <td>${h.criterion}</td>
+                        <td>${h.items}</td>
+                      </tr>`,
+                  )}
+                </tbody>
+              </table>`
+        }
+      </section>`,
     reviewer,
     csrf,
   );

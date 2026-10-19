@@ -1,20 +1,28 @@
 import { z } from 'zod';
 import type { Status } from './enums.js';
 
-/** `system` or `human:<name>`; only humans may move items into a recommended status. */
+/**
+ * `system`, `human:<name>` or `policy:<version>` (the approval policy, PRD 9.2a). Only a human or
+ * the policy may move items into a recommended status.
+ */
 export const actorSchema = z
   .string()
-  .regex(/^(system|human:[A-Za-z0-9._@-]{1,64})$/, 'actor must be "system" or "human:<name>"');
+  .regex(
+    /^(system|human:[A-Za-z0-9._@-]{1,64}|policy:[a-z0-9][a-z0-9.-]{0,31})$/,
+    'actor must be "system", "human:<name>" or "policy:<version>"',
+  );
 export type Actor = z.infer<typeof actorSchema>;
 
-export const HUMAN_ONLY_TARGETS: ReadonlySet<Status> = new Set([
+/** Statuses only an approver (a human or the approval policy) may set (PRD FR-C9). */
+export const APPROVAL_TARGETS: ReadonlySet<Status> = new Set([
   'recommended',
   'recommended_provisional',
 ]);
 
 /**
- * Allowed transitions (PRD FR-C7, plan 6.1). Anything not listed is invalid.
- * Unblocking (blocked → candidate) is human-only as well; see HUMAN_ONLY_TRANSITIONS.
+ * Allowed transitions (PRD FR-C7, plan 6.1). Anything not listed is invalid. Recommended items can
+ * go back to candidate (eval regression or owner veto, PRD FR-P6/FR-P9). Unblocking
+ * (blocked → candidate) is human-only; see HUMAN_ONLY_TRANSITIONS.
  */
 export const ALLOWED_TRANSITIONS: Readonly<Record<Status, readonly Status[]>> = {
   candidate: ['watchlist', 'recommended_provisional', 'recommended', 'blocked', 'rejected'],
@@ -26,8 +34,15 @@ export const ALLOWED_TRANSITIONS: Readonly<Record<Status, readonly Status[]>> = 
     'blocked',
     'rejected',
   ],
-  recommended_provisional: ['recommended', 'watchlist', 'deprecated', 'blocked', 'rejected'],
-  recommended: ['recommended_provisional', 'watchlist', 'deprecated', 'blocked'],
+  recommended_provisional: [
+    'candidate',
+    'recommended',
+    'watchlist',
+    'deprecated',
+    'blocked',
+    'rejected',
+  ],
+  recommended: ['candidate', 'recommended_provisional', 'watchlist', 'deprecated', 'blocked'],
   deprecated: ['candidate', 'watchlist', 'blocked'],
   blocked: ['candidate'],
   rejected: ['candidate', 'blocked'],
@@ -41,17 +56,26 @@ export function isHumanActor(actor: string): boolean {
   return actor.startsWith('human:');
 }
 
+export function isPolicyActor(actor: string): boolean {
+  return actor.startsWith('policy:');
+}
+
+/** The audit actor for a policy version, e.g. `policy:policy-v1`. */
+export function policyActor(version: string): Actor {
+  return actorSchema.parse(`policy:${version}`);
+}
+
 /** Pure validation; `transitionStatus` in packages/db calls this inside its transaction. */
 export function checkTransition(from: Status, to: Status, actor: string): TransitionCheck {
   if (!actorSchema.safeParse(actor).success) {
-    return { ok: false, reason: 'actor must be "system" or "human:<name>"' };
+    return { ok: false, reason: 'actor must be "system", "human:<name>" or "policy:<version>"' };
   }
   if (from === to) return { ok: false, reason: `item is already ${to}` };
   if (!ALLOWED_TRANSITIONS[from].includes(to)) {
     return { ok: false, reason: `transition ${from} → ${to} is not allowed` };
   }
-  if (HUMAN_ONLY_TARGETS.has(to) && !isHumanActor(actor)) {
-    return { ok: false, reason: `only a human may set ${to}` };
+  if (APPROVAL_TARGETS.has(to) && !isHumanActor(actor) && !isPolicyActor(actor)) {
+    return { ok: false, reason: `only a human or the approval policy may set ${to}` };
   }
   if (HUMAN_ONLY_TRANSITIONS.has(`${from}->${to}`) && !isHumanActor(actor)) {
     return { ok: false, reason: `only a human may move ${from} → ${to}` };

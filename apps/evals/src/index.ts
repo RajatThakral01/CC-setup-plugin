@@ -10,3 +10,4 @@ export * from './runner.js';
 export * from './selftest.js';
 export * from './tasks.js';
 export * from './tools.js';
+export * from './context.js';
