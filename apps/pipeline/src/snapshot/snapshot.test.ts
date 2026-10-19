@@ -66,14 +66,12 @@ async function seedItem(
     'system',
     'fixture',
   );
-  await t.db
-    .insert(scorecards)
-    .values({
-      itemId: id,
-      version: '1.0.0',
-      confidence: 'high',
-      gateResults: { gate0_hygiene: { result: 'pass', evidence: [], checkedAt } },
-    });
+  await t.db.insert(scorecards).values({
+    itemId: id,
+    version: '1.0.0',
+    confidence: 'high',
+    gateResults: { gate0_hygiene: { result: 'pass', evidence: [], checkedAt } },
+  });
   await t.db.insert(itemVersions).values({ itemId: id, version: '1.0.0', pinned: true });
   if (status === 'recommended_provisional')
     await transitionStatus(t.db, id, status, 'human:owner', 'ok');

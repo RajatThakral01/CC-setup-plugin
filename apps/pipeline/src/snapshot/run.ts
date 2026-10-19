@@ -100,15 +100,13 @@ export async function publishSnapshot(
   }
   const sha256 = sha256Hex(bytes);
   const location = await deps.store.publish({ version, catalog: bytes, signature, sha256 });
-  await deps.db
-    .insert(snapshots)
-    .values({
-      version,
-      createdAt: now,
-      itemCount: snapshot.items.length,
-      sha256,
-      publishedUrl: location,
-    });
+  await deps.db.insert(snapshots).values({
+    version,
+    createdAt: now,
+    itemCount: snapshot.items.length,
+    sha256,
+    publishedUrl: location,
+  });
   const byStatus: Record<string, number> = {};
   for (const item of snapshot.items) byStatus[item.status] = (byStatus[item.status] ?? 0) + 1;
   for (const s of skipped) deps.logger.warn(s, 'item left out of snapshot');
