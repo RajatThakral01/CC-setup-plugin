@@ -19,7 +19,6 @@ import {
   resolveToolSetup,
   type EvaluationResult,
   type TaskSet,
-  type ToolSetup,
 } from '@cc-setup-agent/evals';
 import {
   evalNeed,
@@ -362,15 +361,8 @@ export async function createEvalExecutor(spendCeiling?: {
     rawUrl: c.config.GITHUB_RAW_URL,
     ...(c.config.GITHUB_TOKEN ? { token: c.config.GITHUB_TOKEN } : {}),
   });
-  const tool = async (id: string) => {
-    const setup: ToolSetup = await resolveToolSetup(
-      await loadEvalItem(c.db, id),
-      c.overrides,
-      fetchSkill,
-    );
-    if (setup.kind === 'none') throw new AutoEvalError(`${id} resolves to no tool`);
-    return setup;
-  };
+  const tool = async (id: string) =>
+    resolveToolSetup(await loadEvalItem(c.db, id), c.overrides, fetchSkill);
   return {
     execute: async (entry) =>
       evaluateCandidate(ctx, {

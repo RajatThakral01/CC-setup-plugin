@@ -4,12 +4,18 @@ set -euo pipefail
 cat > /home/node/fake-claude <<'JS'
 #!/usr/bin/env node
 const fs = require('fs'), http = require('http'), https = require('https');
-const out = { argv: process.argv.slice(2), key: process.env.ANTHROPIC_API_KEY, base: process.env.ANTHROPIC_BASE_URL, opus: process.env.ANTHROPIC_DEFAULT_OPUS_MODEL };
+const out = { argv: process.argv.slice(2), key: process.env.ANTHROPIC_API_KEY, base: process.env.ANTHROPIC_BASE_URL, opus: process.env.ANTHROPIC_DEFAULT_OPUS_MODEL, review: process.env.SECURITY_REVIEW_MODEL };
 const direct = () => new Promise((r) => { const q = https.get('https://example.com', () => r('reached')); q.on('error', () => r('blocked')); q.setTimeout(3000, () => { q.destroy(); r('blocked'); }); });
 const viaProxy = () => new Promise((r) => { const u = new URL(process.env.HTTPS_PROXY); const q = http.request({ host: u.hostname, port: u.port, method: 'CONNECT', path: 'evil.example.invalid:443' }); q.on('connect', (res) => r(String(res.statusCode))); q.on('error', () => r('error')); q.end(); });
 (async () => {
   out.direct = await direct();
   out.proxy = await viaProxy();
+  const read = (f) => (fs.existsSync(f) ? fs.readFileSync(f, 'utf8') : null);
+  out.claudeMd = read('/home/node/CLAUDE.md');
+  out.settings = read('/home/node/.claude/settings.json');
+  out.plugin = read('/home/node/.eval-plugins/example-plugin-gamma/.claude-plugin/plugin.json');
+  const i = out.argv.indexOf('--mcp-config');
+  out.mcp = i >= 0 ? JSON.parse(read(out.argv[i + 1]) || 'null') : null;
   fs.writeFileSync('/home/node/agent-was-here', JSON.stringify(out));
   process.stdout.write(JSON.stringify({ type: 'result', subtype: 'success', is_error: false, num_turns: 1, total_cost_usd: 0, modelUsage: {} }));
 })();

@@ -134,6 +134,9 @@ describe('sandbox boundary', () => {
           // The plugin's verify_setup starts the user's own approved servers on their machine,
           // exactly as Claude Code would; that is not third-party evaluation in the pipeline.
           if (rel === join('apps', 'plugin', 'server', 'verify.ts')) continue;
+          // The setup arm starts only this repo's own plugin bundle and calls tools that run no
+          // catalog code (sync, analyze, recommend, generate); the items run in the eval sandbox.
+          if (rel === join('apps', 'evals', 'src', 'setup-arm.ts')) continue;
           const text = readFileSync(full, 'utf8');
           if (
             /StdioClientTransport|spawn\(\s*['"]docker|execFile\w*\(\s*['"]docker|createDockerCli\(\s*['"]/.test(

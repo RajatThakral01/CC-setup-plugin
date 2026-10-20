@@ -5,23 +5,23 @@ Status on 2026-10-20, before the owner's final acceptance test (`docs/M10_ACCEPT
 - **Catalog:** snapshot `2026.10.20-2`, signed, with 32 `recommended_provisional` items and 1 blocked item.
 - **Plugin:** `setup-agent` 0.2.0, bundle rebuilt 2026-10-20.
 - **Claude Code:** 2.1.304 on the host, 2.1.303 in the eval image.
-- **Tests:** 733 passing, plus 5 real-Docker tests that run in CI; the eval sandbox tests also pass locally with real Docker. CI is green on every pushed milestone.
+- **Tests:** 741 passing, plus 6 real-Docker tests that run in CI; the eval sandbox tests also pass locally with real Docker. CI is green on every pushed milestone.
 
 ## PRD 17.2 acceptance criteria (as amended for the approval policy, PRD 0.4/0.5)
 
-| #   | Criterion                                                                                                       | Status                                                                          |
-| --- | --------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------- |
-| 1   | `/setup` on a fresh Next.js project produces a plan with reasons, scorecards and excluded items                 | Automated: pass. **Pending owner test**                                         |
-| 2   | Each item can be approved or rejected individually                                                              | Automated: pass. **Pending owner test**                                         |
-| 3   | Generated files pass schema validation and are written only after Claude Code permission prompts                | Automated (schema): pass. **Pending owner test** (prompts)                      |
-| 4   | Existing `CLAUDE.md` and `.mcp.json` content is preserved                                                       | Automated: pass. **Pending owner test**                                         |
-| 5   | Backups are created and `/setup-rollback` restores them exactly                                                 | Automated: pass. M8 owner test: pass. **Pending owner re-test**                 |
-| 6   | No secret values appear in any generated file, log or tool response                                             | Automated: pass. **Pending owner test**                                         |
-| 7   | `verify_setup` correctly reports a deliberately broken MCP server                                               | Automated: pass. M8 owner test failed, fixed in M8.2. **Pending owner re-test** |
-| 8   | Catalog contains at least 50 approved items (policy or owner) for the MVP stack, each with a complete scorecard | **Fail: 32 approved.** Scorecards complete (32/32). Needs an owner decision     |
-| 9   | At least one category shows eval results against an incumbent                                                   | **Pass**                                                                        |
-| 10  | A `blocked` item installed in a test project triggers the warning on the next run                               | Automated and bundle smoke test: pass. **Pending owner test**                   |
-| 11  | The recommended setup beats the default setup on the MVP benchmark tasks                                        | **Not run.** Needs a harness change and a paid run; owner decision              |
+| #   | Criterion                                                                                                       | Status                                                                                                                                          |
+| --- | --------------------------------------------------------------------------------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------- |
+| 1   | `/setup` on a fresh Next.js project produces a plan with reasons, scorecards and excluded items                 | Automated: pass. **Pending owner test**                                                                                                         |
+| 2   | Each item can be approved or rejected individually                                                              | Automated: pass. **Pending owner test**                                                                                                         |
+| 3   | Generated files pass schema validation and are written only after Claude Code permission prompts                | Automated (schema): pass. **Pending owner test** (prompts)                                                                                      |
+| 4   | Existing `CLAUDE.md` and `.mcp.json` content is preserved                                                       | Automated: pass. **Pending owner test**                                                                                                         |
+| 5   | Backups are created and `/setup-rollback` restores them exactly                                                 | Automated: pass. M8 owner test: pass. **Pending owner re-test**                                                                                 |
+| 6   | No secret values appear in any generated file, log or tool response                                             | Automated: pass. **Pending owner test**                                                                                                         |
+| 7   | `verify_setup` correctly reports a deliberately broken MCP server                                               | Automated: pass. M8 owner test failed, fixed in M8.2. **Pending owner re-test**                                                                 |
+| 8   | Catalog contains at least 50 approved items (policy or owner) for the MVP stack, each with a complete scorecard | **Owner-accepted exception** (2026-10-20): 32 approved, scorecards complete (32/32)                                                             |
+| 9   | At least one category shows eval results against an incumbent                                                   | **Pass**                                                                                                                                        |
+| 10  | A `blocked` item installed in a test project triggers the warning on the next run                               | Automated and bundle smoke test: pass. **Pending owner test**                                                                                   |
+| 11  | The recommended setup beats the default setup on the MVP benchmark tasks                                        | **Ahead, not confirmed:** Haiku screening 60/60 vs 56/60 (+7 points, under the 0.2 confirmation threshold). Sonnet confirmation: owner decision |
 
 ### Evidence
 
@@ -95,10 +95,7 @@ Status on 2026-10-20, before the owner's final acceptance test (`docs/M10_ACCEPT
   - 6 official-vendor items fail **only** the gates (soft fails count as not passing).
   - 8 community items fail only category agreement and a winning eval.
   - The rest fail several criteria, mostly incomplete gates or install details.
-- This follows the owner's rule "when unsure, don't recommend". Reaching 50 means one of:
-  - (a) accept 32 as an owner exception for the MVP;
-  - (b) a policy change, for example accepting gate soft fails for official vendors, or letting the rules plus one model decide category for official vendors;
-  - (c) more evals (community items) and the next discovery runs.
+- **Owner decision (2026-10-20): accepted as an MVP exception.** Reason: "quality over count; catalog grows via discovery and evals". The policy is not loosened to reach a number; the weekly discovery, policy and eval jobs grow the catalog.
 
 **9. Eval results against an incumbent**
 
@@ -118,52 +115,81 @@ Status on 2026-10-20, before the owner's final acceptance test (`docs/M10_ACCEPT
 
 **11. Recommended setup vs default setup**
 
-- Not measured. The harness compares **one** item against the category incumbent (FR-E4). It has no arm that installs a whole recommended setup.
-- What it needs:
-  - a "setup" arm (the items `recommend_setup` picks for the fixture app, installed together): a free code change;
-  - a paid run over the 20 tasks (4 task sets × 5).
-- Estimate from measured costs (Haiku USD 0.0057 mean per run over 27 runs; Sonnet USD 0.13 from one pilot run):
-  - Stage A (Haiku, 3 runs × 2 arms × 20 tasks): about USD 0.7 to 1.4;
-  - Stage B (Sonnet, 1 run × 2 arms × 20 tasks): about USD 5.4;
-  - a whole setup adds context, so runs may cost more.
-- This is also the PRD success metric "eval uplift".
+Run 2026-10-20 with `pnpm evals setup-compare` (Haiku `claude-haiku-5-5`, Claude Code 2.1.303, catalog `2026.10.20-2`, 4 task sets × 5 tasks × 3 runs per arm). Report: `reports/setup-eval-2026-10-20-fast.md`.
+
+- **Recommended setup:** what the plugin itself recommends and generates for the fixture app with fixed answers.
+  - Recommended: context7, webapp-testing (skill), security-guidance (plugin), plus the `typecheck-on-stop` hook.
+  - Installed in the eval: webapp-testing, security-guidance, the generated `CLAUDE.md` block and `.claude/settings.json`.
+  - context7 needs an account key, so it is not evaluated (FR-E7).
+  - security-guidance runs without its optional Agent SDK, because PyPI isn't reachable from the sandbox; it then uses pattern warnings plus a single-shot review.
+- **Default setup:** the same fixture with no tools and no setup files.
+
+| Category        | Recommended setup: passed | Default: passed | Lead   | Mean tokens (setup / default) | Mean time   | Mean cost per run   |
+| --------------- | ------------------------- | --------------- | ------ | ----------------------------- | ----------- | ------------------- |
+| browser_testing | 15/15 (100%)              | 14/15 (93%)     | +7     | 207,625 / 173,056             | 43 s / 55 s | USD 0.0048 / 0.0040 |
+| code_review     | 15/15 (100%)              | 12/15 (80%)     | +20    | 168,637 / 142,481             | 37 s / 22 s | USD 0.0042 / 0.0035 |
+| database        | 15/15 (100%)              | 15/15 (100%)    | 0      | 280,102 / 203,890             | 58 s / 44 s | USD 0.0070 / 0.0050 |
+| docs            | 15/15 (100%)              | 15/15 (100%)    | 0      | 297,756 / 273,386             | 58 s / 51 s | USD 0.0064 / 0.0057 |
+| **all**         | **60/60 (100%)**          | **56/60 (93%)** | **+7** | 238,530 / 198,203             | 49 s / 43 s | USD 0.0056 / 0.0045 |
+
+- **The default's 4 failures:**
+  - `review-discount` 3/3: it missed the documented rounding and range checks;
+  - `contact-form-submit` 1/3: it timed out trying to download a browser it can't reach.
+- **The recommended setup** never failed and never timed out. It used about 20% more tokens and about 25% more cost per run.
+- **Verdict:** the recommended setup is ahead in every category where the default lost anything, and never behind. The overall lead (+7 points) is under the 0.2 confirmation threshold, so by the harness's own rule it is **not confirmed**.
+- **Ceiling effect:** both arms score 100% on database and docs, so with Haiku these tasks can't separate the setups.
+- **Cost of the comparison:** USD 0.61 in actual usage (121 runs, 3 default runs reused from the first, stopped attempt).
 
 ## Other M10 plan steps
 
-- **Full loop on live data** (plan M10 task 1):
-  - discovery last ran live 2026-10-19;
-  - gates, policy and snapshot ran 2026-10-20;
-  - a fresh `discover` (classification costs a few cents) and `policy` run before the final snapshot is optional: owner go-ahead.
+- **Full loop on live data** (plan M10 task 1), run 2026-10-20 on the owner's go-ahead:
+  - `discover`: 4/4 sources, 30 new candidates, 300 records classified (USD 0.0773);
+  - `gates --pending`: 30 gated, 0 errors;
+  - `policy`: 0 approved, 2 demoted, both caused by a scanner false positive (see Known issues);
+  - **no snapshot published:** the owner tests with `2026.10.20-2`, and the changes since then come from that false positive.
 - **Broken server and blocked item** (plan M10 tasks 2 and 3): owner-run, M10 steps 13 and 18. The blocked check uses the catalog's existing blocked item instead of blocking a real approved item.
 
 ## Spend
 
 | Purpose        | USD        |
 | -------------- | ---------- |
-| Classification | 0.4892     |
-| Evals          | 0.3379     |
-| **Total**      | **0.8271** |
+| Classification | 0.5665     |
+| Evals          | 2.3331     |
+| **Total**      | **2.8996** |
 
-Caps: USD 20 per week, USD 40 in total. This week: USD 0.69.
+Caps: USD 20 per week, USD 40 in total. This week: USD 2.76.
 
-The 7 eval runs that timed out on 2026-10-20 were first booked at the USD 1.50 cap (USD 10.50 in total). On the owner's instruction they were re-booked at USD 0.05 in total, split by relay call count, and marked "estimated from relay call counts, checked against console". The original bookings are kept in `budget_ledger_corrections`.
+- **Evals** include a USD 1.38 reservation left by one setup run that was stopped mid-flight on 2026-10-20 (`20261020-88aefc2cd0`, about a minute in, real cost likely under a cent). It stays booked until the owner decides; without it, total spend is USD 1.52.
+- **The 7 timed-out runs** of 2026-10-20 were re-booked at USD 0.05 in total on the owner's instruction ("estimated from relay call counts, checked against console"); the original USD 1.50 bookings are kept in `budget_ledger_corrections`.
 
 ## Known issues and limitations
 
-- **Approved items:** 32 of the 50 targeted (criterion 8).
+- **Approved items:** 32 of the 50 targeted (criterion 8, owner-accepted exception).
+- **Gate 3 false positives (found 2026-10-20, owner decision pending):**
+  - the M4 injection rule for a plugin's first `SKILL.md` blocked three official plugins whose text quotes or discusses instructions:
+    - `anthropics-claude-plugins-official-receipts` quotes "ignore previous instructions" as an attack to refuse;
+    - `awslabs-agent-plugins-aws-transform`: "do NOT tell the user that recurring analyses require deploying infrastructure";
+    - `awslabs-agent-plugins-databases-on-aws`: "Do not silently skip validation — inform the user";
+  - the injection cause locks the `anthropics` and `awslabs` orgs, so the policy demoted the owner approvals of `frontend-design` and `webapp-testing` to candidate in the database;
+  - the published snapshot `2026.10.20-2` is unaffected.
 - **Eval coverage:**
-  - only browser_testing has eval results, and only Stage A (Haiku);
-  - docs, database and code_review have task sets but no runs;
+  - item-vs-incumbent results exist only for browser_testing (Stage A, Haiku);
+  - the whole-setup comparison covers all four task sets;
+  - on database and docs both arms score 100% with Haiku (ceiling effect), so harder tasks are needed to tell setups apart;
   - the database tasks use SQLite, so the Postgres, Prisma, Neon and Redis items aren't evaluated (backlog: needs a Postgres service in the eval sandbox).
+- **Eval sandbox limits:**
+  - items that need accounts (context7) aren't evaluated;
+  - PyPI isn't reachable, so plugins that pip-install helpers at start (security-guidance's Agent SDK) run in their fallback mode;
+  - the eval relay booked no usage in real runs until 2026-10-20 (compressed responses; fixed and verified).
 - **Blocked-item detection** covers MCP servers in `.mcp.json` only. A blocked skill or plugin installed in a project isn't detected yet.
 - **Gate 3:** 21 items have gate 3 `not_run` (no runnable install, remote servers needing credentials, manual subagents and hook recipes). None of them can be approved.
 - **Gold set:** classification scores 7/10 on the owner labels; misses are mostly skill-vs-plugin confusion.
 - **Plugin updates:** Claude Code caches plugins by version, so every plugin release must bump `plugin.json` and `SERVER_VERSION` together (enforced by a test since 0.2.0).
-- **Eval timeouts:** fixed with a 90 s limit per command and transcripts that survive a kill, but not yet confirmed in a paid run.
+- **Eval timeouts:** confirmed fixed in the paid run. The one timeout in 121 runs was an agent looping on a blocked browser download, and it was booked at its actual USD 0.0048, not the cap.
 
 ## Phase 2 recommendations
 
-1. **Evals:** add a whole-setup arm and measure eval uplift (criterion 11, the PRD's main success metric) before anything else.
+1. **Evals:** harder benchmark tasks (both arms hit 100% on database and docs with Haiku), then re-measure eval uplift (criterion 11, the PRD's main success metric) with Sonnet confirmation.
 2. **Evals:** run the new task sets, starting with the incumbents of docs and code_review. Add a Postgres task set.
 3. **Catalog:** decide on criterion 8 (exception or policy change), then let the weekly policy and eval jobs grow the catalog.
 4. **Plugin:** extend blocked-item detection to skills and plugins.

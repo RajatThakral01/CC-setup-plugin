@@ -23,7 +23,8 @@ import type { EvalDriver, RunLimits } from './driver.js';
 import type { EvalTask } from './tasks.js';
 import { toolLabel, type ToolSetup } from './tools.js';
 
-export type EvalStage = 'pilot' | 'screen' | 'confirm' | 'baseline';
+/** `setup`: a whole recommended setup (M10); its default-setup counterpart runs as `baseline`. */
+export type EvalStage = 'pilot' | 'screen' | 'confirm' | 'baseline' | 'setup';
 
 export interface EvalContext {
   config: AppConfig;
@@ -59,6 +60,11 @@ export interface EvalRunRecord {
   numTurns: number | null;
   subtype: string | null;
 }
+
+/** The catalog item a run is about; none for the no-tool baseline and for a whole setup. */
+const singleItem = (t: ToolSetup) => (t.kind === 'none' || t.kind === 'setup' ? null : t.item);
+const toolVersion = (t: ToolSetup) =>
+  t.kind === 'setup' ? t.label : (singleItem(t)?.version ?? null);
 
 export function newRunId(): string {
   return `${new Date().toISOString().slice(0, 10).replace(/-/g, '')}-${randomBytes(5).toString('hex')}`;
@@ -259,7 +265,10 @@ export async function runOne(
         model: input.model,
         stage: input.stage,
         tool: toolLabel(input.tool),
-        toolVersion: input.tool.kind === 'none' ? null : input.tool.item.version,
+        toolVersion: toolVersion(input.tool),
+        ...(input.tool.kind === 'setup'
+          ? { setupItems: input.tool.items.map((i) => `${i.id}@${i.version}`) }
+          : {}),
         claudeCodeVersion: ctx.claudeCodeVersion,
         image: ctx.image,
         platform: outcome.platform,
@@ -279,7 +288,7 @@ export async function runOne(
     taskId: input.task.id,
     model: input.model,
     stage: input.stage,
-    itemId: input.tool.kind === 'none' ? null : input.tool.item.id,
+    itemId: singleItem(input.tool)?.id ?? null,
     success,
     costUsd,
     inputTokens,
@@ -292,7 +301,7 @@ export async function runOne(
   await db.insert(evalRuns).values({
     runId,
     itemId: record.itemId,
-    itemVersion: input.tool.kind === 'none' ? null : input.tool.item.version,
+    itemVersion: singleItem(input.tool)?.version ?? null,
     baselineItemId: input.baselineItemId,
     taskId: input.task.id,
     taskSetVersion: input.taskSetVersion,

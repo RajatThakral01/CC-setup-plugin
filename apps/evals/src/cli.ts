@@ -2,6 +2,10 @@
  * Eval CLI: `pnpm evals <command>`. Thin wrapper; job logic lives in modules. Commands that call
  * the Anthropic API need `--confirm-spend`, so a typo never spends money.
  */
+import { mkdir, mkdtemp, writeFile } from 'node:fs/promises';
+import { tmpdir } from 'node:os';
+import { join, resolve } from 'node:path';
+import { pathToFileURL } from 'node:url';
 import { parseArgs } from 'node:util';
 import {
   asc,
@@ -26,14 +30,22 @@ import {
 } from './costs.js';
 import { EvalError } from './errors.js';
 import { evaluateCandidate } from './evaluate.js';
+import { compareSetup, formatSetupReport } from './evaluate-setup.js';
 import { findIncumbent, loadEvalItem } from './items.js';
 import { runPilot } from './pilot.js';
 import { newRunId, runLimits } from './runner.js';
 import { sweepEvalContainers } from './sandbox/docker-driver.js';
 import { buildImage, checkPythonPlaywright, imageClaudeVersion } from './sandbox/image.js';
 import { selftestTasks } from './selftest.js';
-import { loadTaskSet } from './tasks.js';
-import { createSkillFetcher, resolveToolSetup, type ToolSetup } from './tools.js';
+import {
+  buildSetupArm,
+  createPluginClient,
+  DEFAULT_FIXTURE_DIR,
+  DEFAULT_PLUGIN_BUNDLE,
+  FIXTURE_SETUP_ANSWERS,
+} from './setup-arm.js';
+import { listTaskSets, loadTaskSet } from './tasks.js';
+import { createSkillFetcher, resolveToolSetup, type ItemTool } from './tools.js';
 
 const USAGE = `Usage: pnpm evals <command>
 
@@ -45,15 +57,14 @@ Commands:
   run --item <id> [--incumbent <id> | --no-incumbent] --confirm-spend
                                           Two-stage evaluation against the incumbent (costs money)
   plan [--category c]                     Weekly run plan from measured costs
+  setup-compare [--sets a,b] [--runs n] [--model fast|strong] [--max-usd x] (--dry-run | --confirm-spend)
+                                          Recommended setup vs default setup on the task sets (costs money)
   queue                                   Candidates waiting for budget
   cleanup                                 Remove eval containers and networks left by crashed runs`;
 
 const out = (text: string) => process.stdout.write(`${text}\n`);
 
-async function toolFor(
-  c: EvalCommandContext,
-  id: string,
-): Promise<Extract<ToolSetup, { kind: 'mcp' | 'skill' }>> {
+async function toolFor(c: EvalCommandContext, id: string): Promise<ItemTool> {
   const item = await loadEvalItem(c.db, id);
   const token = c.config.GITHUB_TOKEN;
   const setup = await resolveToolSetup(
@@ -65,7 +76,6 @@ async function toolFor(
       ...(token ? { token } : {}),
     }),
   );
-  if (setup.kind === 'none') throw new EvalError(`${id} resolves to no tool`);
   return setup;
 }
 
@@ -102,6 +112,11 @@ async function main(argv: string[]): Promise<number> {
       incumbent: { type: 'string' },
       'no-incumbent': { type: 'boolean' },
       'confirm-spend': { type: 'boolean' },
+      sets: { type: 'string' },
+      runs: { type: 'string' },
+      model: { type: 'string', default: 'fast' },
+      'max-usd': { type: 'string' },
+      'dry-run': { type: 'boolean' },
     },
   });
   if (!command || command === 'help' || command === '--help') {
@@ -170,6 +185,72 @@ async function main(argv: string[]): Promise<number> {
         const p = await planInput(c, category);
         out('');
         out(formatWeeklyPlan(p, weeklyPlan(p)));
+        return 0;
+      }
+      case 'setup-compare': {
+        const dryRun = values['dry-run'] === true;
+        if (!dryRun) requireSpend(values['confirm-spend']);
+        const model =
+          values.model === 'strong'
+            ? c.config.MODEL_STRONG
+            : values.model === 'fast'
+              ? c.config.MODEL_FAST
+              : null;
+        if (!model) throw new EvalError('--model must be fast or strong');
+        const runs = values.runs ? Number(values.runs) : c.config.EVAL_SCREEN_RUNS;
+        if (!Number.isInteger(runs) || runs < 1 || runs > 10)
+          throw new EvalError('--runs must be 1 to 10');
+        const setNames = values.sets
+          ? values.sets.split(',').map((x) => categorySchema.parse(x.trim()))
+          : await listTaskSets();
+        const taskSets = await Promise.all(setNames.map((n) => loadTaskSet(n)));
+        const ctx = await createRunContext(c, !dryRun);
+        const client = await createPluginClient({
+          bundlePath: DEFAULT_PLUGIN_BUNDLE,
+          catalogUrl: `${pathToFileURL(resolve(c.config.SNAPSHOT_LOCAL_DIR)).href}/`,
+          dataDir: await mkdtemp(join(tmpdir(), 'ccsa-plugin-data-')),
+          claudeCodeVersion: ctx.claudeCodeVersion,
+        });
+        let arm: Awaited<ReturnType<typeof buildSetupArm>>;
+        try {
+          arm = await buildSetupArm({
+            client,
+            fixtureDir: DEFAULT_FIXTURE_DIR,
+            answers: FIXTURE_SETUP_ANSWERS,
+            resolve: async (id) =>
+              resolveToolSetup(
+                await loadEvalItem(c.db, id),
+                c.overrides,
+                createSkillFetcher(c.http, {
+                  apiUrl: c.config.GITHUB_API_URL,
+                  rawUrl: c.config.GITHUB_RAW_URL,
+                  ...(c.config.GITHUB_TOKEN ? { token: c.config.GITHUB_TOKEN } : {}),
+                }),
+              ),
+          });
+        } finally {
+          await client.close();
+        }
+        const tasks = taskSets.reduce((n, t) => n + t.tasks.length, 0);
+        const perRun = estimateRunUsd(model, await measuredCosts(c.db), c.config.EVAL_RUN_MAX_USD);
+        out(`Setup: ${JSON.stringify(arm.report, null, 2)}`);
+        out(
+          `Plan: ${taskSets.map((t) => t.version).join(', ')}; ${tasks} tasks × ${runs} runs × 2 arms with ${model}; ~USD ${(tasks * runs * 2 * perRun).toFixed(2)} at the measured USD ${perRun.toFixed(4)} per run (cached default runs are reused).`,
+        );
+        if (dryRun) return 0;
+        const maxUsd = values['max-usd'] ? Number(values['max-usd']) : undefined;
+        if (maxUsd !== undefined && !(maxUsd > 0)) throw new EvalError('--max-usd must be > 0');
+        const result = await compareSetup(
+          maxUsd ? { ...ctx, spendCeiling: { limitUsd: maxUsd, since: new Date() } } : ctx,
+          { taskSets, setup: arm.tool, runs, model },
+        );
+        const when = new Date().toISOString().slice(0, 10);
+        const report = formatSetupReport(result, arm.report, when);
+        await mkdir(c.config.REPORTS_DIR, { recursive: true });
+        const file = join(c.config.REPORTS_DIR, `setup-eval-${when}-${values.model}.md`);
+        await writeFile(file, report);
+        out(report);
+        out(`Written to ${file}; ${result.newRuns.length} new run(s).`);
         return 0;
       }
       case 'run': {

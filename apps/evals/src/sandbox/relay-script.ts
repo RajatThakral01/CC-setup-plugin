@@ -13,7 +13,7 @@ export const RELAY_PORT = 8080;
 export const PROXY_PORT = 3128;
 
 export const RELAY_SCRIPT = `
-const http = require('http'), https = require('https'), net = require('net');
+const http = require('http'), https = require('https'), net = require('net'), zlib = require('zlib');
 const KEY = process.env.ANTHROPIC_API_KEY || '';
 const RELAY_PORT = Number(process.env.RELAY_PORT || ${RELAY_PORT}), PROXY_PORT = Number(process.env.PROXY_PORT || ${PROXY_PORT});
 const UP = new URL(process.env.RELAY_UPSTREAM);
@@ -46,7 +46,11 @@ const tapUsage = (r, res, path, model) => {
     else if (d.type === 'message_delta') take(d.usage);
     else if (d.type === 'message_stop') done = true;
   };
-  r.on('data', (c) => {
+  // A compressed response (should the upstream ignore 'identity') is parsed from a decompressed copy.
+  const enc = String(r.headers['content-encoding'] || '').toLowerCase();
+  const unzip = enc === 'gzip' ? zlib.createGunzip() : enc === 'br' ? zlib.createBrotliDecompress() : enc === 'deflate' ? zlib.createInflate() : null;
+  const src = unzip ? r.pipe(unzip) : r;
+  src.on('data', (c) => {
     if (sse) { buf += c.toString('utf8'); const parts = buf.split('\\n'); buf = parts.pop() || ''; parts.forEach(line); }
     else if (json.length < 5000000) json += c.toString('utf8');
   });
@@ -56,7 +60,9 @@ const tapUsage = (r, res, path, model) => {
     if (!sse && json) { try { const j = JSON.parse(json); if (j.model) u.model = j.model; take(j.usage); done = true; } catch {} }
     if (saw) log({ kind: 'usage', path, ...u, complete: done });
   };
-  r.on('end', finish); r.on('close', finish); r.on('aborted', finish); r.on('error', finish); res.on('close', finish);
+  // With a decompressor in between, give it a moment to flush what it has before logging.
+  const later = () => (unzip ? setTimeout(finish, 100) : finish());
+  src.on('end', finish); src.on('error', finish); r.on('close', later); r.on('aborted', later); r.on('error', later); res.on('close', later);
 };
 const deny = (res, status, msg) => { res.writeHead(status, { 'content-type': 'application/json' }); res.end(JSON.stringify({ type: 'error', error: { type: 'permission_error', message: msg } })); };
 http.createServer((req, res) => {
@@ -72,6 +78,8 @@ http.createServer((req, res) => {
     const headers = { ...req.headers };
     for (const h of ['host', 'x-api-key', 'authorization', 'content-length', 'connection', 'proxy-connection']) delete headers[h];
     headers['x-api-key'] = KEY; headers['content-length'] = String(body.length); headers.host = UP.host;
+    // Uncompressed responses, so the usage tap can read every one (M10: compressed streams had none).
+    headers['accept-encoding'] = 'identity';
     const up = (UP.protocol === 'http:' ? http : https).request({ protocol: UP.protocol, hostname: UP.hostname, port: UP.port || (UP.protocol === 'http:' ? 80 : 443), path: UP.pathname.replace(/\\/$/, '') + req.url, method: req.method, headers }, (r) => {
       log({ kind: 'api', path, model, status: r.statusCode });
       if (path === '/v1/messages' && r.statusCode === 200) tapUsage(r, res, path, model);

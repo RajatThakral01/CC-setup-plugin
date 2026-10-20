@@ -38,6 +38,7 @@ Every other choice: decide, record it in `docs/DECISIONS.md`, keep going. Never 
 - `pnpm triage` — local triage UI on TRIAGE_HOST:TRIAGE_PORT (needs TRIAGE_ADMIN_TOKEN)
 - `pnpm evals image` — build the eval image (fixture app, browsers incl. Python Playwright, pinned Claude Code); `pnpm evals selftest` — check Python Playwright in the image and prove each task's check (free, Docker)
 - `pnpm evals pilot|run … --confirm-spend` — real eval runs (cost money; only when the owner asks); `pnpm evals plan` / `queue` / `cleanup` — free
+- `pnpm evals setup-compare --confirm-spend [--sets a,b] [--runs n] [--model fast|strong] [--max-usd x]` — recommended setup vs default setup on the task sets (costs money; only when the owner asks); `--dry-run` shows the setup and the estimate for free
 - `pnpm db:health` — check the database connection
 - `pnpm check:models` — fail if any file names an Opus model ID (only exception: `apps/plugin/server/model-rules.ts`)
 - `pnpm keys:generate --out <dir outside repo>` — Ed25519 snapshot signing keys

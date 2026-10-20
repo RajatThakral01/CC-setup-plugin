@@ -50,6 +50,8 @@ export interface EvalDriver {
 }
 
 export const MCP_CONFIG_PATH = '/home/node/.eval/mcp.json';
+/** Plugin folders under test, one child per plugin (outside the app, so not in the run's diff). */
+export const PLUGINS_DIR = '/home/node/.eval-plugins';
 
 /**
  * Headless Claude Code arguments (verified for 2.1.303: `claude --help`, plus `--max-turns`,
@@ -75,11 +77,21 @@ export function buildClaudeArgs(spec: RunSpec): string[] {
     '--strict-mcp-config',
     '--mcp-config',
     MCP_CONFIG_PATH,
+    // A folder of plugins loads each child (verified in the 2.1.303 `--help`).
+    ...(hasPlugins(spec.tool) ? ['--plugin-dir', PLUGINS_DIR] : []),
   ];
 }
 
+const hasPlugins = (tool: ToolSetup) =>
+  tool.kind === 'plugin' || (tool.kind === 'setup' && tool.plugins.length > 0);
+
 /** The `--mcp-config` file content: only the tool under test (or nothing for a baseline). */
 export function mcpConfigFor(tool: ToolSetup): string {
-  const servers = tool.kind === 'mcp' ? { [tool.item.id]: tool.server } : {};
+  const servers =
+    tool.kind === 'mcp'
+      ? { [tool.item.id]: tool.server }
+      : tool.kind === 'setup'
+        ? tool.servers
+        : {};
   return `${JSON.stringify({ mcpServers: servers }, null, 2)}\n`;
 }

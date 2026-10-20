@@ -64,6 +64,15 @@ const exists = async (p: string) => (await stat(p).catch(() => null)) !== null;
 const posix = (p: string) => p.split(sep).join('/');
 
 /** Loads and validates a category's task set; the version hashes every file in it. */
+/** Categories that have a task set folder (every folder under the tasks root), sorted. */
+export async function listTaskSets(root = DEFAULT_TASKS_ROOT): Promise<Category[]> {
+  const entries = await readdir(root, { withFileTypes: true });
+  return entries
+    .filter((e) => e.isDirectory())
+    .map((e) => categorySchema.parse(e.name))
+    .sort();
+}
+
 export async function loadTaskSet(category: Category, root = DEFAULT_TASKS_ROOT): Promise<TaskSet> {
   const dir = join(root, category);
   if (!(await exists(join(dir, 'taskset.yaml'))))

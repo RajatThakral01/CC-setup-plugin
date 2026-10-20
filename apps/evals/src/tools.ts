@@ -40,9 +40,35 @@ export type ToolSetup =
       /** Commands run before Claude starts (not timed), e.g. warming the npx cache. */
       prewarm: string[][];
     }
-  | { kind: 'skill'; item: EvalItem; files: Array<{ path: string; content: Buffer }> };
+  | { kind: 'skill'; item: EvalItem; files: Array<{ path: string; content: Buffer }> }
+  /** A plugin folder at its pinned commit, loaded with `--plugin-dir` (M10; no network needed). */
+  | { kind: 'plugin'; item: EvalItem; files: Array<{ path: string; content: Buffer }> }
+  | {
+      /**
+       * A whole recommended setup (M10, PRD 17.2 #11): the plugin's own generated CLAUDE.md and
+       * settings (hooks), plus every evaluable recommended MCP server and skill, installed together.
+       */
+      kind: 'setup';
+      label: string;
+      items: EvalItem[];
+      /** `.mcp.json`-style entries by item id, passed with `--mcp-config`. */
+      servers: Record<string, Record<string, unknown>>;
+      prewarm: string[][];
+      /** Files written into the app before the agent starts, paths relative to the app. */
+      files: Array<{ path: string; content: Buffer }>;
+      /** Plugin folders, loaded with `--plugin-dir`. */
+      plugins: Array<{ id: string; files: Array<{ path: string; content: Buffer }> }>;
+    };
 
-export const toolLabel = (t: ToolSetup) => (t.kind === 'none' ? 'no tool' : t.item.id);
+/** One catalog item set up for a run. */
+export type ItemTool = Extract<ToolSetup, { kind: 'mcp' | 'skill' | 'plugin' }>;
+
+export const toolLabel = (t: ToolSetup) =>
+  t.kind === 'none' ? 'no tool' : t.kind === 'setup' ? t.label : t.item.id;
+
+/** A plugin folder has a manifest or at least one component directory Claude Code loads. */
+const PLUGIN_MARKER =
+  /^(\.claude-plugin\/plugin\.json|(commands|agents|skills|hooks)\/|\.mcp\.json$)/;
 
 const SAFE_NAME = /^(@[a-z0-9._-]+\/)?[a-z0-9._-]+$/i;
 const SAFE_VERSION = /^[0-9A-Za-z.+_-]+$/;
@@ -55,7 +81,7 @@ export async function resolveToolSetup(
   item: EvalItem,
   overrides: ToolOverrides,
   fetchSkill: (item: EvalItem) => Promise<Array<{ path: string; content: Buffer }>>,
-): Promise<ToolSetup> {
+): Promise<ItemTool> {
   const install = item.install;
   if (!install) throw new EvalError(`${item.id} has no install details`);
   if (install.envVars.length > 0)
@@ -83,6 +109,12 @@ export async function resolveToolSetup(
     if (!files.some((f) => /(^|\/)skill\.md$/i.test(f.path)))
       throw new EvalError(`${item.id}: no SKILL.md in the fetched skill folder`);
     return { kind: 'skill', item, files };
+  }
+  if (item.kind === 'plugin' && install.method === 'plugin') {
+    const files = await fetchSkill(item);
+    if (!files.some((f) => PLUGIN_MARKER.test(f.path)))
+      throw new EvalError(`${item.id}: no plugin manifest or components in the fetched folder`);
+    return { kind: 'plugin', item, files };
   }
   throw new EvalError(`${item.id}: install method ${install.method} isn't supported in evals yet`);
 }
@@ -150,7 +182,7 @@ export function createSkillFetcher(
         e.path.startsWith(prefix) &&
         (!atRoot || (!SKIP_IN_ROOT_SKILL.test(e.path) && (e.size ?? 0) <= MAX_SKILL_FILE_BYTES)),
     );
-    if (atRoot && !blobs.some((b) => /^skill\.md$/i.test(b.path)))
+    if (atRoot && item.kind === 'skill' && !blobs.some((b) => /^skill\.md$/i.test(b.path)))
       throw new EvalError(`${item.id}: no SKILL.md at the root of ${where.repo}`);
     const total = blobs.reduce((s, b) => s + (b.size ?? 0), 0);
     if (blobs.length === 0)

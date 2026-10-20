@@ -31,6 +31,8 @@ export const AGENT_ENV_ALLOWLIST = new Set([
   'ANTHROPIC_DEFAULT_HAIKU_MODEL',
   'ANTHROPIC_DEFAULT_FABLE_MODEL',
   'CLAUDE_CODE_SUBAGENT_MODEL',
+  // Model override read by the official security-guidance plugin (M10; value is the run's model).
+  'SECURITY_REVIEW_MODEL',
   'CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC',
   'DISABLE_AUTOUPDATER',
   'DISABLE_TELEMETRY',

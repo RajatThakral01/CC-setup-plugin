@@ -430,7 +430,8 @@ describe('runOne', () => {
 describe('evaluateCandidate', () => {
   const byTool = (pass: { candidate: boolean; baseline: boolean }) => (spec: RunSpec) => ({
     success:
-      spec.tool.kind !== 'none' && spec.tool.item.id !== incumbent.item.id
+      (spec.tool.kind === 'mcp' || spec.tool.kind === 'skill') &&
+      spec.tool.item.id !== incumbent.item.id
         ? pass.candidate
         : pass.baseline,
     costUsd: 0.01,

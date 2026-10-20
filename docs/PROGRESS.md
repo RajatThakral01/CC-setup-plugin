@@ -2,9 +2,9 @@
 
 ## Current state
 
-- **Session range:** M10 (owner request 2026-10-20): re-booking of the 7 timed-out runs, acceptance doc, MVP report, plugin rebuild.
-- **Current milestone:** 10 prepared; waiting for the owner's final acceptance test (`docs/M10_ACCEPTANCE.md`) and decisions on PRD 17.2 #8 and #11 (see Open questions).
-- **Total Anthropic API spend to date (ledger):** USD 0.8271 (eval USD 0.3379, classification USD 0.4892). The 7 timed-out runs are re-booked at USD 0.05 in total (owner decision); their original USD 1.50 bookings are kept in `budget_ledger_corrections`. Weekly cap USD 20 (USD 0.69 used this week), total cap USD 40. No API calls this round.
+- **Session range:** M10 round 2 (owner answers 2026-10-20): #8 exception recorded, fresh discovery and policy, whole-setup eval (#11) built and run with Haiku.
+- **Current milestone:** 10. Waiting for the owner's acceptance test on snapshot `2026.10.20-2` (no new snapshot: see Open questions), the decision on the three false-positive blocks, and whether to run a Sonnet confirmation.
+- **Total Anthropic API spend to date (ledger):** USD 2.8996 (eval USD 2.3331, classification USD 0.5665), including a USD 1.38 reservation left by one stopped run (real spend USD 1.52). Weekly cap USD 20 (USD 2.76 used this week), total cap USD 40.
 - **Remote:** https://github.com/RajatThakral01/CC-setup-plugin — pushed after every milestone; CI green.
 
 ## Milestones
@@ -343,18 +343,42 @@ Acceptance:
 
 Tests: 733 passing (+5 real-Docker in CI). New: `correctSpend` (re-booking with audit, and its refusals), plugin version consistency.
 
+### M10 round 2 (owner answers, 2026-10-20)
+
+- **#8:** 32 approved items accepted as an MVP exception ("quality over count; catalog grows via discovery and evals").
+- **Fresh discovery:** 30 new candidates (USD 0.0773); gates 30/30.
+- **Policy:**
+  - three official plugins were auto-blocked by false positives of the M4 injection rule (receipts, aws-transform, databases-on-aws);
+  - the resulting org locks made the policy demote the owner approvals of frontend-design and webapp-testing to candidate;
+  - no snapshot was published, so the owner tests with `2026.10.20-2`.
+- **#11 whole-setup eval:**
+  - `setup` and `plugin` tool kinds;
+  - the setup arm is built from the plugin bundle's own analysis, recommendation and generated config;
+  - `pnpm evals setup-compare`.
+  - **Haiku result:** recommended setup 60/60 vs default 56/60 (+7 points; browser_testing +7, code_review +20, database and docs 100% on both sides). Under the 0.2 threshold, so not confirmed.
+  - Cost USD 0.61.
+- **Bugs found by the first paid runs and fixed:**
+  - the relay recorded no usage in real runs (compressed responses);
+  - the security-guidance plugin's review calls were refused (hard-coded Opus; now pointed at the run's model).
+- **Timeouts:** the only timeout in 121 runs was booked at its actual USD 0.0048 and counted as a failure, with its last tool calls recorded.
+
+Tests: 741 passing (+6 real-Docker in CI; the 23 eval sandbox tests also pass locally with real Docker). New this round:
+
+- the setup arm built from fake plugin answers;
+- the setup comparison: per category, cached default runs, ambiguity, budget stop, timeouts on both sides;
+- plugin resolve (folder and repo root);
+- real-Docker setup and plugin install;
+- relay with a compressed stream and `accept-encoding: identity`.
+
 ## Backlog
 
 - **Postgres-family eval task set** (Postgres, Prisma, Neon, Redis items): deferred by the owner, 2026-10-20. Needs a Postgres (and Redis) service in the eval sandbox; today's database tasks use SQLite.
 - **Blocked-item detection for skills and plugins:** today the plugin checks `.mcp.json` only.
-- **Whole-setup eval arm** for PRD 17.2 #11 (see Open questions).
+- **Harder benchmark tasks:** database and docs are solved 100% by Haiku without any setup (ceiling effect).
+- **Gate 3 injection rule:** stop treating quoted or negated phrases ("Do not … inform the user", an attack quoted as an example) as instructions; needs owner sign-off, since it loosens a security check.
 
 ## Open questions
 
-- **Owner, PRD 17.2 #8:** 32 approved items, 50 targeted. Options:
-  - (a) accept 32 as an MVP exception;
-  - (b) change the policy (for example, accept gate soft fails for official vendors, or decide category by rules plus one model for them);
-  - (c) wait for evals and discovery.
-  - Details: MVP_REPORT "Evidence 8".
-- **Owner, PRD 17.2 #11:** "recommended setup beats the default setup" has never been measured. It needs a whole-setup arm in the harness (free) and a paid run: about USD 0.7 to 1.4 for Haiku screening on the 20 tasks, about USD 5.4 more with Sonnet confirmation. Run it, or accept an exception?
-- **Owner:** run a fresh `discover` and `policy` (a few cents) before the final snapshot, as in plan M10 task 1?
+- **Owner: three false-positive security blocks** (evidence in DECISIONS "Milestone 10, round 2"). Unblock `anthropics-claude-plugins-official-receipts`, `awslabs-agent-plugins-aws-transform` and `awslabs-agent-plugins-databases-on-aws` as `human:owner` (as in M8.3 round 2)? The next policy run would then restore frontend-design and webapp-testing. Also: may I narrow the injection rule (backlog)?
+- **Owner, #11 Sonnet confirmation:** 20 tasks × 1 run × 2 arms with Sonnet. Estimated USD 5.4 (40 runs at the one measured Sonnet run, USD 0.135), up to about USD 6.5 with the setup's extra tokens. But database and docs are already 100% on both sides with Haiku, so Sonnet would likely only re-test browser_testing and code_review. A cheaper alternative: Sonnet on those two task sets only, about USD 2.7.
+- **Owner:** the USD 1.38 reservation left by the stopped run `20261020-88aefc2cd0`. Its usage was lost with its containers; it ran about a minute, so likely under a cent. Release it at an estimate, or keep it?

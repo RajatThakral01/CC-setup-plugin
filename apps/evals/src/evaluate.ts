@@ -13,7 +13,7 @@ import { isoWeekStart, type EvalSummary } from '@cc-setup-agent/shared';
 import { estimateRunUsd } from './costs.js';
 import { runOne, type EvalContext, type EvalRunRecord, type EvalStage } from './runner.js';
 import type { EvalTask, TaskSet } from './tasks.js';
-import type { ToolSetup } from './tools.js';
+import type { ItemTool, ToolSetup } from './tools.js';
 
 /** One stored run, as needed for baseline caching and summaries. */
 export interface RunRow {
@@ -72,9 +72,9 @@ const passRate = (runs: Array<{ success: boolean }>) =>
 const passes = (runs: Array<{ success: boolean }>) => runs.length > 0 && passRate(runs) >= 0.5;
 
 export interface EvaluationPlan {
-  candidate: Extract<ToolSetup, { kind: 'mcp' | 'skill' }>;
+  candidate: ItemTool;
   /** The current recommended item in the category (FR-E4), or null to compare against no tool. */
-  incumbent: Extract<ToolSetup, { kind: 'mcp' | 'skill' }> | null;
+  incumbent: ItemTool | null;
   taskSet: TaskSet;
   /** Queue priority if the batch has to wait for budget. */
   priority?: number;

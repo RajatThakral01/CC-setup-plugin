@@ -1,6 +1,7 @@
 import { spawn, type ChildProcess } from 'node:child_process';
 import { createServer, request, type IncomingHttpHeaders, type Server } from 'node:http';
 import { connect, type AddressInfo } from 'node:net';
+import { gzipSync } from 'node:zlib';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import { parseRelayLog, RELAY_SCRIPT } from './relay-script.js';
 
@@ -32,6 +33,17 @@ beforeAll(async () => {
           },
         },
       });
+      if (body.includes('"gzip":true')) {
+        // An upstream that compresses anyway: the tap must still read the usage.
+        res.writeHead(200, { 'content-type': 'text/event-stream', 'content-encoding': 'gzip' });
+        return res.end(
+          gzipSync(
+            start +
+              ev({ type: 'message_delta', usage: { output_tokens: 33 } }) +
+              ev({ type: 'message_stop' }),
+          ),
+        );
+      }
       if (body.includes('"stream":true')) {
         res.writeHead(200, { 'content-type': 'text/event-stream' });
         // Split mid-event to prove the parser buffers across chunks.
@@ -117,6 +129,16 @@ describe('eval API relay', () => {
       complete: true,
     });
     expect(plain).toMatchObject({ input: 10, output: 5, complete: true });
+  });
+
+  it('asks upstream for uncompressed responses, and still reads a compressed one', async () => {
+    const before = usage().length;
+    await post('/v1/messages', { model: 'example-fast', stream: true, gzip: true, messages: [] });
+    await new Promise((r) => setTimeout(r, 300));
+    expect(seen.at(-1)?.headers['accept-encoding']).toBe('identity');
+    expect(usage().slice(before)).toEqual([
+      expect.objectContaining({ input: 120, output: 33, cacheRead: 900, complete: true }),
+    ]);
   });
 
   it('records what it saw of a response that was cut short', async () => {

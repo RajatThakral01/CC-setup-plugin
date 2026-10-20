@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import { json, text } from '../../../test/support/fake-fetch.js';
 import { fakeHttp } from '../../../test/support/http.js';
-import { createSkillFetcher, parseTreeUrl, type EvalItem } from './tools.js';
+import { createSkillFetcher, parseTreeUrl, resolveToolSetup, type EvalItem } from './tools.js';
 
 const API = 'https://api.github.test';
 const RAW = 'https://raw.github.test';
@@ -67,5 +67,73 @@ describe('createSkillFetcher for a skill at the root of its repo', () => {
     await expect(createSkillFetcher(http, { apiUrl: API, rawUrl: RAW })(item())).rejects.toThrow(
       /no SKILL.md at the root/,
     );
+  });
+});
+
+describe('resolveToolSetup for a plugin (M10)', () => {
+  const plugin = (url: string): EvalItem => ({
+    id: 'example-plugin',
+    kind: 'plugin',
+    install: {
+      method: 'plugin',
+      plugin: { marketplace: 'example-market', name: 'x' },
+      envVars: [],
+    },
+    version: 'sha-aaaaaaa',
+    sourceUrl: url,
+    contextOverheadTokens: null,
+  });
+  const routes = (repo: string, tree: Array<{ path: string; size: number }>) => ({
+    [`${API}/repos/${repo}/commits/aaaaaaa`]: json({ sha: SHA }),
+    [`${API}/repos/${repo}/git/trees/${SHA}?recursive=1`]: json({
+      sha: SHA,
+      truncated: false,
+      tree: tree.map((t) => ({ ...t, type: 'blob' })),
+    }),
+    ...Object.fromEntries(
+      tree.map((t) => [`${RAW}/${repo}/${SHA}/${t.path}`, text(`# ${t.path}`)]),
+    ),
+  });
+
+  it('loads a plugin folder at its pinned commit, and a plugin at a repo root', async () => {
+    const folder = fakeHttp(
+      routes('example-org/plugins', [
+        { path: 'plugins/x/.claude-plugin/plugin.json', size: 20 },
+        { path: 'plugins/x/hooks/hooks.json', size: 20 },
+        { path: 'plugins/y/README.md', size: 20 },
+      ]),
+    );
+    const a = await resolveToolSetup(
+      plugin('https://github.com/example-org/plugins/tree/main/plugins/x'),
+      {},
+      createSkillFetcher(folder.http, { apiUrl: API, rawUrl: RAW }),
+    );
+    expect(a.kind).toBe('plugin');
+    expect(a.kind === 'plugin' && a.files.map((f) => f.path)).toEqual([
+      '.claude-plugin/plugin.json',
+      'hooks/hooks.json',
+    ]);
+    const root = fakeHttp(
+      routes('example-org/example-plugin', [{ path: 'commands/review.md', size: 20 }]),
+    );
+    const b = await resolveToolSetup(
+      plugin('https://github.com/example-org/example-plugin'),
+      {},
+      createSkillFetcher(root.http, { apiUrl: API, rawUrl: RAW }),
+    );
+    expect(b.kind).toBe('plugin');
+  });
+
+  it('refuses a folder that is not a plugin', async () => {
+    const { http } = fakeHttp(
+      routes('example-org/example-plugin', [{ path: 'README.md', size: 20 }]),
+    );
+    await expect(
+      resolveToolSetup(
+        plugin('https://github.com/example-org/example-plugin'),
+        {},
+        createSkillFetcher(http, { apiUrl: API, rawUrl: RAW }),
+      ),
+    ).rejects.toThrow(/no plugin manifest or components/);
   });
 });

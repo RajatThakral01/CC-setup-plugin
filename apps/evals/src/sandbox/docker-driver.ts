@@ -5,6 +5,7 @@ import {
   buildClaudeArgs,
   mcpConfigFor,
   MCP_CONFIG_PATH,
+  PLUGINS_DIR,
   type EvalDriver,
   type RunOutcome,
   type RunSpec,
@@ -160,6 +161,9 @@ export function createDockerDriver(
             ANTHROPIC_DEFAULT_SONNET_MODEL: options.modelStrong,
             ANTHROPIC_DEFAULT_HAIKU_MODEL: options.modelFast,
             CLAUDE_CODE_SUBAGENT_MODEL: spec.model,
+            // The official security-guidance plugin reviews with a hard-coded Opus model, which the
+            // relay refuses; its documented override points it at the run's own model (M10).
+            SECURITY_REVIEW_MODEL: spec.model,
             CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC: '1',
             DISABLE_AUTOUPDATER: '1',
             DISABLE_TELEMETRY: '1',
@@ -197,6 +201,20 @@ export function createDockerDriver(
           const name = spec.tool.item.id;
           for (const f of spec.tool.files)
             await put(`${appDir}/.claude/skills/${name}/${f.path}`, f.content);
+        } else if (spec.tool.kind === 'plugin') {
+          for (const f of spec.tool.files)
+            await put(`${PLUGINS_DIR}/${spec.tool.item.id}/${f.path}`, f.content);
+        } else if (spec.tool.kind === 'setup') {
+          for (const argv of spec.tool.prewarm) {
+            const r = await exec(argv, spec.limits.setupTimeoutSeconds);
+            if (r.code !== 0) {
+              out.setup = { ok: false, output: tail(`tool prewarm failed: ${r.stderr}`) };
+              return out;
+            }
+          }
+          for (const f of spec.tool.files) await put(`${appDir}/${f.path}`, f.content);
+          for (const p of spec.tool.plugins)
+            for (const f of p.files) await put(`${PLUGINS_DIR}/${p.id}/${f.path}`, f.content);
         }
 
         if (spec.mode === 'agent') {
