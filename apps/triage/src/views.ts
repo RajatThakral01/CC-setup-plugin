@@ -674,6 +674,7 @@ export function digestPage(d: Digest, reviewer: string, csrf: string): View {
       </p>
       ${digestList('Approved', d.approved)} ${digestList('Promoted', d.promoted)}
       ${digestList('Demoted', d.demoted)} ${digestList('Owner vetoes', d.vetoes)}
+      ${digestList('Blocks lifted', d.lifted)}
       <section>
         <h2>Not approved: why</h2>
         ${

@@ -50,6 +50,13 @@
       "when": 1792444127607,
       "tag": "0006_autonomous_curation",
       "breakpoints": true
+    },
+    {
+      "idx": 7,
+      "version": "7",
+      "when": 1792447131144,
+      "tag": "0007_block_records_and_gold_tiers",
+      "breakpoints": true
     }
   ]
 }

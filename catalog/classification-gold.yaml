@@ -45,3 +45,115 @@ items:
     kind: mcp_server
     category: docs
     source: owner-approved 2026-10-19
+
+# Machine labels, not owner labels: Haiku, Sonnet and the keyword rules all agreed.
+# Frozen as written; scored as a separate tier. Added by `classify:gold --grow`.
+agreement_items:
+  - id: anthropics-claude-plugins-official-code-review
+    kind: plugin
+    category: code_review
+    source: high-agreement (haiku + sonnet + rules) 2026-10-20
+  - id: anthropics-claude-plugins-official-pr-review-toolkit
+    kind: plugin
+    category: code_review
+    source: high-agreement (haiku + sonnet + rules) 2026-10-20
+  - id: auth0-agent-skills
+    kind: skill
+    category: auth
+    source: high-agreement (haiku + sonnet + rules) 2026-10-20
+  - id: chromedevtools-chrome-devtools-mcp
+    kind: mcp_server
+    category: browser_testing
+    source: high-agreement (haiku + sonnet + rules) 2026-10-20
+  - id: convex-convex-backend-skill
+    kind: plugin
+    category: database
+    source: high-agreement (haiku + sonnet + rules) 2026-10-20
+  - id: datadog-labs-claude-code-plugin
+    kind: plugin
+    category: observability
+    source: high-agreement (haiku + sonnet + rules) 2026-10-20
+  - id: exa-labs-exa-mcp-server
+    kind: mcp_server
+    category: search
+    source: high-agreement (haiku + sonnet + rules) 2026-10-20
+  - id: firecrawl-firecrawl-claude-plugin
+    kind: plugin
+    category: search
+    source: high-agreement (haiku + sonnet + rules) 2026-10-20
+  - id: getsentry-plugin-claude
+    kind: plugin
+    category: observability
+    source: high-agreement (haiku + sonnet + rules) 2026-10-20
+  - id: meilisearch-meilisearch-mcp
+    kind: mcp_server
+    category: search
+    source: high-agreement (haiku + sonnet + rules) 2026-10-20
+  - id: microsoft-playwright-cli
+    kind: skill
+    category: browser_testing
+    source: high-agreement (haiku + sonnet + rules) 2026-10-20
+  - id: microsoft-playwright-mcp
+    kind: mcp_server
+    category: browser_testing
+    source: high-agreement (haiku + sonnet + rules) 2026-10-20
+  - id: mongodb-agent-skills
+    kind: skill
+    category: database
+    source: high-agreement (haiku + sonnet + rules) 2026-10-20
+  - id: mongodb-js-mongodb-mcp-server
+    kind: mcp_server
+    category: database
+    source: high-agreement (haiku + sonnet + rules) 2026-10-20
+  - id: neondatabase-agent-skills
+    kind: skill
+    category: database
+    source: high-agreement (haiku + sonnet + rules) 2026-10-20
+  - id: netlify-context-and-tools
+    kind: skill
+    category: deploy
+    source: high-agreement (haiku + sonnet + rules) 2026-10-20
+  - id: netlify-netlify-mcp
+    kind: mcp_server
+    category: deploy
+    source: high-agreement (haiku + sonnet + rules) 2026-10-20
+  - id: prisma-skills
+    kind: skill
+    category: database
+    source: high-agreement (haiku + sonnet + rules) 2026-10-20
+  - id: railwayapp-railway-skills
+    kind: skill
+    category: deploy
+    source: high-agreement (haiku + sonnet + rules) 2026-10-20
+  - id: redis-agent-skills
+    kind: skill
+    category: database
+    source: high-agreement (haiku + sonnet + rules) 2026-10-20
+  - id: redis-mcp-redis
+    kind: mcp_server
+    category: database
+    source: high-agreement (haiku + sonnet + rules) 2026-10-20
+  - id: render-oss-render-plugin-claude-code
+    kind: plugin
+    category: deploy
+    source: high-agreement (haiku + sonnet + rules) 2026-10-20
+  - id: sanity-io-agent-toolkit
+    kind: plugin
+    category: cms
+    source: high-agreement (haiku + sonnet + rules) 2026-10-20
+  - id: sonarsource-sonarqube-agent-plugins
+    kind: plugin
+    category: code_review
+    source: high-agreement (haiku + sonnet + rules) 2026-10-20
+  - id: tavily-ai-skills
+    kind: skill
+    category: search
+    source: high-agreement (haiku + sonnet + rules) 2026-10-20
+  - id: testdino-hq-playwright-skill
+    kind: skill
+    category: browser_testing
+    source: high-agreement (haiku + sonnet + rules) 2026-10-20
+  - id: workos-skills
+    kind: skill
+    category: auth
+    source: high-agreement (haiku + sonnet + rules) 2026-10-20

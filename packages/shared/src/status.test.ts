@@ -20,10 +20,7 @@ describe('checkTransition', () => {
   });
 
   it.each(pairs)('%s → %s follows the table for the policy actor', (from, to) => {
-    const allowed =
-      from !== to &&
-      ALLOWED_TRANSITIONS[from].includes(to) &&
-      !(from === 'blocked' && to === 'candidate');
+    const allowed = from !== to && ALLOWED_TRANSITIONS[from].includes(to);
     expect(checkTransition(from, to, 'policy:policy-v1').ok).toBe(allowed);
   });
 
@@ -35,14 +32,15 @@ describe('checkTransition', () => {
     expect(checkTransition('candidate', 'recommended_provisional', 'system').ok).toBe(false);
   });
 
-  it('lets the policy approve and demote, but never unblock', () => {
+  it('lets the policy approve, demote and (with DB-enforced conditions) unblock', () => {
     expect(checkTransition('candidate', 'recommended_provisional', 'policy:policy-v1').ok).toBe(
       true,
     );
     expect(checkTransition('recommended_provisional', 'candidate', 'policy:policy-v1').ok).toBe(
       true,
     );
-    expect(checkTransition('blocked', 'candidate', 'policy:policy-v1').ok).toBe(false);
+    expect(checkTransition('blocked', 'candidate', 'policy:policy-v1').ok).toBe(true);
+    expect(checkTransition('blocked', 'candidate', 'system').ok).toBe(false);
   });
 
   it('refuses malformed actors', () => {

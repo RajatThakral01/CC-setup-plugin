@@ -66,6 +66,22 @@ export async function checkUpdates(root: string, snapshot: Snapshot): Promise<Up
   }
   const notices: UpdateNotice[] = [];
   for (const [name, entry] of Object.entries(servers)) {
+    // A version that stays blocked after its item's block was lifted (PRD FR-P10).
+    const pkg = installedPackage(entry);
+    const blockedVersion = pkg?.version
+      ? snapshot.blockedVersions.find(
+          (b) => (b.id === name || b.package === pkg.name) && b.versions.includes(pkg.version!),
+        )
+      : undefined;
+    if (blockedVersion) {
+      notices.push({
+        id: name,
+        type: 'blocked',
+        severity: 'critical',
+        message: `${blockedVersion.name} ${pkg!.version} is BLOCKED in the catalog (security). Update it or remove it from .mcp.json now.`,
+      });
+      continue;
+    }
     const m = match(snapshot, name, entry);
     if (!m) {
       notices.push({

@@ -47,6 +47,7 @@ export function renderDigestMarkdown(d: Digest, triageUrl: string): string {
     ...section('Promoted (recommended)', d.promoted, 'None this week.'),
     ...section('Demoted', d.demoted, 'None this week.'),
     ...section('Owner vetoes', d.vetoes, 'None this week.'),
+    ...section('Blocks lifted', d.lifted, 'None this week.'),
     '## Not approved: why',
     '',
     ...(d.heldByCriterion.length === 0

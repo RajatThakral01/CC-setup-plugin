@@ -281,6 +281,31 @@ describe('gate 3: security', () => {
       gate3(facts({ scanned: { tools: false, text: false, packages: 0 } })).result.result,
     ).toBe('not_run');
   });
+
+  it('passes a plugin whose commands and config were scanned clean (M8.3)', () => {
+    expect(
+      gate3(facts({ scanned: { tools: false, text: true, config: true, packages: 0 } })).result
+        .result,
+    ).toBe('pass');
+    expect(
+      gate3(facts({ scanned: { tools: false, text: false, config: true, packages: 0 } })).result
+        .result,
+    ).toBe('pass');
+  });
+
+  it('never passes when a bundled MCP server could not be verified', () => {
+    const r = gate3(
+      facts({
+        scanned: { tools: false, text: true, config: true, packages: 0 },
+        bundled: {
+          servers: 1,
+          unprobed: ['github (remote https://x.example.test): auth_required'],
+        },
+      }),
+    );
+    expect(r.result.result).toBe('soft_fail');
+    expect(r.result.notes).toContain('bundled MCP server(s) not verified');
+  });
 });
 
 describe('confidence', () => {

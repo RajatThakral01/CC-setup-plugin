@@ -1,5 +1,11 @@
 import type { Logger } from '@cc-setup-agent/core';
-import { budgetCapsFromConfig, remainingBudget, spendSummary, type Db } from '@cc-setup-agent/db';
+import {
+  BudgetExceededError,
+  budgetCapsFromConfig,
+  remainingBudget,
+  spendSummary,
+  type Db,
+} from '@cc-setup-agent/db';
 import {
   cachedBaselineRuns,
   createCommandContext,
@@ -112,7 +118,12 @@ const defaultTaskSet = async (category: Category) => loadTaskSet(category).catch
  * estimate (Stage A + Stage B + uncached baselines) fits the plannable budget: the weekly eval
  * budget left and the total budget left minus the reserve, times the headroom.
  */
-export async function planAutoEvals(deps: AutoEvalDeps, now = new Date()): Promise<AutoEvalPlan> {
+export async function planAutoEvals(
+  deps: AutoEvalDeps,
+  now = new Date(),
+  /** An extra ceiling for this batch (e.g. the amount the owner approved). */
+  maxUsd?: number,
+): Promise<AutoEvalPlan> {
   const { config, policy } = deps;
   const facts = await loadPolicyFacts(deps.db, deps.rules, now);
   const byId = new Map(facts.map((f) => [f.item.id, f]));
@@ -124,7 +135,10 @@ export async function planAutoEvals(deps: AutoEvalDeps, now = new Date()): Promi
   const spent = (await spendSummary(deps.db)).totalUsd;
   const reserve = policy.auto_evals.total_reserve_usd;
   const totalLeft = Math.max(0, config.TOTAL_BUDGET_USD - spent - reserve);
-  const plannable = Math.min(weekly.remainingUsd, totalLeft) * policy.auto_evals.headroom;
+  const plannable = Math.min(
+    Math.min(weekly.remainingUsd, totalLeft) * policy.auto_evals.headroom,
+    maxUsd ?? Infinity,
+  );
 
   const measured = await measuredCosts(deps.db);
   const fast = estimateRunUsd(config.MODEL_FAST, measured, config.EVAL_RUN_MAX_USD);
@@ -261,6 +275,7 @@ export async function runAutoEvals(
     trigger: 'scheduled' | 'manual';
     confirmSpend?: boolean;
     dryRun?: boolean;
+    maxUsd?: number;
     execute?: AutoEvalExecutor;
     onPlan?: (plan: AutoEvalPlan, text: string) => Promise<void>;
     now?: Date;
@@ -269,7 +284,7 @@ export async function runAutoEvals(
   plan: AutoEvalPlan;
   results: Array<{ id: string; result?: EvaluationResult; error?: string }>;
 }> {
-  const plan = await planAutoEvals(deps, options.now);
+  const plan = await planAutoEvals(deps, options.now, options.maxUsd);
   const text = formatAutoEvalPlan(plan);
   deps.logger.info(
     { batch: plan.batch.map((b) => b.id), estimateUsd: plan.estimateUsd, budget: plan.budget },
@@ -281,7 +296,10 @@ export async function runAutoEvals(
     throw new AutoEvalError(
       'auto-evals calls the Anthropic API; add --confirm-spend or use --dry-run',
     );
-  const own = options.execute ? null : await createEvalExecutor();
+  // The plan's ceiling is enforced on every run, not only when planning (booked spend counts,
+  // including runs booked at their cap after a timeout).
+  const ceiling = { limitUsd: plan.budget.plannableUsd, since: new Date() };
+  const own = options.execute ? null : await createEvalExecutor(ceiling);
   const execute = options.execute ?? own!.execute;
   const results: Array<{ id: string; result?: EvaluationResult; error?: string }> = [];
   try {
@@ -305,6 +323,11 @@ async function runBatch(
       logger.info({ id: entry.id, status: result.status }, 'scheduled eval done');
       if (result.status === 'queued') break; // budget reached: the rest waits for next week
     } catch (error) {
+      if (error instanceof BudgetExceededError) {
+        results.push({ id: entry.id, error: error.message });
+        logger.warn({ id: entry.id, err: error.message }, 'batch ceiling reached; batch stopped');
+        break;
+      }
       const message = error instanceof Error ? error.message : String(error);
       results.push({ id: entry.id, error: message });
       logger.error({ id: entry.id, err: error }, 'scheduled eval failed');
@@ -313,12 +336,15 @@ async function runBatch(
 }
 
 /** The real executor: the M9 two-stage harness in Docker. Opens its own eval context. */
-export async function createEvalExecutor(): Promise<{
+export async function createEvalExecutor(spendCeiling?: {
+  limitUsd: number;
+  since: Date;
+}): Promise<{
   execute: AutoEvalExecutor;
   close: () => Promise<void>;
 }> {
   const c = await createCommandContext();
-  const ctx = await createRunContext(c, true);
+  const ctx = { ...(await createRunContext(c, true)), ...(spendCeiling ? { spendCeiling } : {}) };
   const fetchSkill = createSkillFetcher(c.http, {
     apiUrl: c.config.GITHUB_API_URL,
     rawUrl: c.config.GITHUB_RAW_URL,

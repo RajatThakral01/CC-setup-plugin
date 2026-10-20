@@ -5,10 +5,17 @@ import { fileURLToPath } from 'node:url';
 import { resolve } from 'node:path';
 import { parseArgs } from 'node:util';
 import { ConfigError } from '@cc-setup-agent/core';
-import { spendSummary } from '@cc-setup-agent/db';
+import { liftVeto, spendSummary, vetoItem } from '@cc-setup-agent/db';
 import { isoWeekStart } from '@cc-setup-agent/shared';
 import { readCategoryRules, readPolicy, readVendors } from './catalog-config.js';
-import { evaluatePrompt, loadGoldSet, readGoldFile } from './classify/gold.js';
+import {
+  agreementLabel,
+  evaluatePrompt,
+  growAgreementGold,
+  loadGoldSet,
+  readGoldFile,
+} from './classify/gold.js';
+import { loadPolicyFacts } from './policy/facts.js';
 import { classifyPending } from './classify/run.js';
 import { runAutoEvals } from './policy/auto-evals.js';
 import { writeDigest } from './policy/jobs.js';
@@ -39,13 +46,16 @@ Commands:
                                        changed (input hash); --all every non-rejected item (owner-set fields
                                        kept), --all --item <id>... only those items
   classify:eval [--prompt <version>] [--model strong]
-                                       Score a prompt version on the gold set and record it (costs money)
+                                       Score a prompt version on each gold tier and record it (costs money)
+  classify:gold [--grow]               Show gold-set sizes; --grow adds new high-agreement labels
   policy [--dry-run] [--no-second-opinions] [--item <id>]...
                                        Run the approval policy (catalog/policy.yaml); second opinions cost money
   digest [--week YYYY-MM-DD]           Write the weekly policy digest to REPORTS_DIR
-  auto-evals --dry-run | --confirm-spend
+  veto | unveto --item <id>... --reason "<why>" --by <owner name>
+                                       Owner veto (same audited path as the triage button)
+  auto-evals --dry-run | --confirm-spend [--max-usd <n>]
                                        Plan (and run) this week's scheduled eval batch
-  gates [--item <id>]... | --pending | --recheck  [--limit <n>]
+  gates [--item <id>]... | --pending | --recheck | --all  [--limit <n>]
                                        Run credibility gates 0-3 (Docker sandbox for MCP servers)
   snapshot                             Build, sign and publish a catalog snapshot (SNAPSHOT_STORE)
   worker                               Start the scheduler (daily discovery at DISCOVERY_CRON, UTC)
@@ -141,6 +151,31 @@ async function main(argv: string[]): Promise<number> {
         return report.failed > 0 ? 1 : 0;
       });
     }
+    case 'veto':
+    case 'unveto': {
+      const { values } = parseArgs({
+        args: rest,
+        options: {
+          item: { type: 'string', multiple: true },
+          reason: { type: 'string' },
+          by: { type: 'string' },
+        },
+      });
+      if (!values.item?.length || !values.reason || !values.by)
+        throw new Error(`${command} needs --item <id>... --reason "<why>" --by <owner name>`);
+      return withContext(async (ctx) => {
+        for (const id of values.item!) {
+          if (command === 'veto') {
+            const status = await vetoItem(ctx.db, id, `human:${values.by}`, values.reason!);
+            out(`${id}: vetoed (now ${status})`);
+          } else {
+            await liftVeto(ctx.db, id, `human:${values.by}`, values.reason!);
+            out(`${id}: veto lifted`);
+          }
+        }
+        return 0;
+      });
+    }
     case 'classify:eval': {
       const { values } = parseArgs({
         args: rest,
@@ -152,11 +187,38 @@ async function main(argv: string[]): Promise<number> {
           ...(values.prompt ? { promptVersion: values.prompt } : {}),
           ...(values.model === 'strong' ? { model: ctx.config.MODEL_STRONG } : {}),
         });
-        out(
-          `${r.promptVersion} with ${r.model}: ${r.correct}/${r.goldSize} correct (score ${r.score.toFixed(3)}), gold set ${r.goldSetHash}, USD ${r.costUsd.toFixed(4)}`,
-        );
+        for (const t of r.tiers)
+          out(
+            `${r.promptVersion} with ${r.model}, ${t.tier} labels: ${t.correct}/${t.goldSize} correct (score ${t.score.toFixed(3)}), gold set ${t.goldSetHash}`,
+          );
+        out(`USD ${r.costUsd.toFixed(4)}`);
         for (const d of r.details.filter((x) => !x.correct))
-          out(`  wrong: ${d.id} (${d.source}): ${d.mismatches.join('; ')}`);
+          out(`  wrong (${d.tier}): ${d.id} (${d.source}): ${d.mismatches.join('; ')}`);
+        return 0;
+      });
+    }
+    case 'classify:gold': {
+      const { values } = parseArgs({ args: rest, options: { grow: { type: 'boolean' } } });
+      return withContext(async (ctx) => {
+        const facts = await loadPolicyFacts(ctx.db, await readCategoryRules(), new Date());
+        const candidates = facts.flatMap((f) => {
+          const label = agreementLabel(
+            f.item.classification,
+            f.item.classificationInputHash,
+            f.item.secondOpinion,
+            f.rules,
+          );
+          return label ? [{ id: f.item.id, label }] : [];
+        });
+        const added = values.grow
+          ? await growAgreementGold(candidates, new Date().toISOString().slice(0, 10))
+          : [];
+        const gold = await loadGoldSet(ctx.db, await readGoldFile());
+        out(
+          `High-agreement candidates now: ${candidates.length}; added: ${added.length}${values.grow ? '' : ' (use --grow to write them)'}`,
+        );
+        for (const tier of ['owner', 'agreement'] as const)
+          out(`${tier} labels: ${gold.filter((g) => g.tier === tier).length}`);
         return 0;
       });
     }
@@ -200,7 +262,11 @@ async function main(argv: string[]): Promise<number> {
     case 'auto-evals': {
       const { values } = parseArgs({
         args: rest,
-        options: { 'dry-run': { type: 'boolean' }, 'confirm-spend': { type: 'boolean' } },
+        options: {
+          'dry-run': { type: 'boolean' },
+          'confirm-spend': { type: 'boolean' },
+          'max-usd': { type: 'string' },
+        },
       });
       return withContext(async (ctx) => {
         const { plan, results } = await runAutoEvals(
@@ -209,6 +275,7 @@ async function main(argv: string[]): Promise<number> {
             trigger: 'manual',
             dryRun: values['dry-run'] === true,
             confirmSpend: values['confirm-spend'] === true,
+            ...(values['max-usd'] ? { maxUsd: Number(values['max-usd']) } : {}),
             onPlan: async (_p, text) => {
               out(text);
             },
@@ -228,12 +295,13 @@ async function main(argv: string[]): Promise<number> {
           item: { type: 'string', multiple: true },
           pending: { type: 'boolean' },
           recheck: { type: 'boolean' },
+          all: { type: 'boolean' },
           limit: { type: 'string' },
         },
       });
       const selection: GateSelection = values.item
         ? { itemIds: values.item }
-        : { mode: values.recheck ? 'recheck' : 'pending' };
+        : { mode: values.all ? 'all' : values.recheck ? 'recheck' : 'pending' };
       return withContext(async (ctx) => {
         const reports = await runGates(
           { ...ctx, vendors: await readVendors() },

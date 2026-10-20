@@ -15,6 +15,7 @@ import {
   sql,
 } from '@cc-setup-agent/db';
 import { createTestDatabase, type TestDatabase } from '@cc-setup-agent/db/testing';
+import { isoWeekStart } from '@cc-setup-agent/shared';
 import { createLocalArtifactStore } from './artifacts.js';
 import { measuredCosts } from './costs.js';
 import type { RunSpec } from './driver.js';
@@ -236,6 +237,47 @@ describe('runOne', () => {
       baselineItemId: null,
     });
     expect(driver.calls[0]?.limits.maxBudgetUsd).toBe(1);
+  });
+
+  it('never lets a batch ceiling be exceeded, even when runs are booked at their cap', async () => {
+    const { ctx, driver } = await context(() => ({ success: true, costUsd: 0.1 }));
+    const since = new Date(Date.now() - 1000);
+    // A measured mean of USD 0.10 per run (before measurement a run is estimated at the 1.50 cap).
+    await t.db.insert(evalRuns).values({
+      runId: 'measured-run',
+      taskId: 'x',
+      taskSetVersion: 'v',
+      model: FAST,
+      claudeCodeVersion: '2.1.303',
+      withTool: false,
+      success: true,
+      costUsd: 0.1,
+    });
+    const capped = { ...ctx, spendCeiling: { limitUsd: 1, since } };
+    const run = () =>
+      runOne(capped, {
+        task: task('x'),
+        taskSetVersion: 'v',
+        tool: candidate,
+        model: FAST,
+        stage: 'screen',
+        baselineItemId: null,
+      });
+    // The ceiling (USD 1) binds below the per-run cap (USD 1.50): a timeout can book at most 1.
+    await run();
+    expect(driver.calls[0]?.limits.maxBudgetUsd).toBe(1);
+    // USD 0.10 booked: the next run may book at most the 0.90 left.
+    await run();
+    expect(driver.calls[1]?.limits.maxBudgetUsd).toBeCloseTo(0.9, 6);
+    await t.db.insert(budgetLedger).values({
+      weekStart: isoWeekStart(new Date()),
+      purpose: 'eval',
+      model: FAST,
+      costUsd: 0.75,
+    });
+    // 0.05 left, below the measured mean of 0.10: refused before running.
+    await expect(run()).rejects.toThrow(/batch ceiling/);
+    expect(driver.calls).toHaveLength(2);
   });
 
   it('records the run cap when the output is unreadable but the API answered', async () => {

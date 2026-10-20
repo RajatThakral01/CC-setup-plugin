@@ -1,4 +1,4 @@
-import { desc, eq } from 'drizzle-orm';
+import { and, desc, eq } from 'drizzle-orm';
 import {
   actorSchema,
   APPROVAL_TARGETS,
@@ -9,12 +9,13 @@ import {
   type Actor,
   type Category,
   type Kind,
+  type BlockCause,
   type SecurityFinding,
   type Status,
 } from '@cc-setup-agent/shared';
 import type { Db, DbOrTx } from './client.js';
 import { InvalidTransitionError, ItemNotFoundError } from './errors.js';
-import { catalogItems, scorecards, statusEvents } from './schema.js';
+import { catalogItems, itemVersions, scorecards, statusEvents } from './schema.js';
 
 export type NewCatalogItem = Omit<
   typeof catalogItems.$inferInsert,
@@ -59,10 +60,16 @@ export async function transitionStatus(
   to: Status,
   actor: Actor,
   reason: string,
-  /** Required to approve an item whose latest scorecard failed the security gate (plan M4/M5). */
-  options: { overrideNote?: string } = {},
+  options: TransitionOptions = {},
 ): Promise<{ from: Status; to: Status }> {
   return db.transaction((tx) => transitionInTx(tx, itemId, to, actor, reason, options));
+}
+
+export interface TransitionOptions {
+  /** Required to approve an item whose latest scorecard failed the security gate (plan M4/M5). */
+  overrideNote?: string;
+  /** For `blocked`: why (PRD FR-P10). Without it the cause is `other`, which is never lifted. */
+  block?: { cause: BlockCause; findings: string[] };
 }
 
 async function transitionInTx(
@@ -71,13 +78,18 @@ async function transitionInTx(
   to: Status,
   actor: Actor,
   reason: string,
-  options: { overrideNote?: string },
+  options: TransitionOptions,
 ): Promise<{ from: Status; to: Status }> {
   if (reason.trim() === '') {
     throw new InvalidTransitionError(itemId, '?', to, 'a reason is required');
   }
   const [row] = await tx
-    .select({ status: catalogItems.status, policyVeto: catalogItems.policyVeto })
+    .select({
+      status: catalogItems.status,
+      policyVeto: catalogItems.policyVeto,
+      blockRecord: catalogItems.blockRecord,
+      blockedVersions: catalogItems.blockedVersions,
+    })
     .from(catalogItems)
     .where(eq(catalogItems.id, itemId))
     .for('update');
@@ -93,6 +105,26 @@ async function transitionInTx(
       to,
       'the policy cannot use override notes',
     );
+  const [pin] = await tx
+    .select({ version: itemVersions.version })
+    .from(itemVersions)
+    .where(and(eq(itemVersions.itemId, itemId), eq(itemVersions.pinned, true)));
+  const pinned = pin?.version ?? null;
+  // The policy may lift only its own vulnerable-dependency block, on a newer, unblocked version.
+  if (byPolicy && row.status === 'blocked') {
+    const r = row.blockRecord;
+    const why =
+      !r || !isPolicyActor(r.by)
+        ? 'the policy lifts only its own blocks'
+        : r.cause !== 'vulnerable_dependency'
+          ? `a ${r.cause} block is never lifted`
+          : !pinned || pinned === r.version || row.blockedVersions.includes(pinned)
+            ? 'no newer, unblocked version is pinned'
+            : null;
+    if (why) throw new InvalidTransitionError(itemId, row.status, to, why);
+  }
+  if (APPROVAL_TARGETS.has(to) && pinned && row.blockedVersions.includes(pinned))
+    throw new InvalidTransitionError(itemId, row.status, to, `version ${pinned} is blocked`);
   let latest: { id: number; findings: SecurityFinding[] } | null = null;
   if (APPROVAL_TARGETS.has(to)) {
     const [card] = await tx
@@ -128,11 +160,41 @@ async function transitionInTx(
     latest = card ? { id: card.id, findings: card.findings } : null;
   }
   const now = new Date();
+  const blocking =
+    to === 'blocked'
+      ? {
+          blockRecord: {
+            by: actor,
+            cause: options.block?.cause ?? ('other' as const),
+            version: pinned,
+            findings: options.block?.findings ?? [],
+            at: now.toISOString(),
+          },
+          blockedVersions:
+            pinned && !row.blockedVersions.includes(pinned)
+              ? [...row.blockedVersions, pinned]
+              : row.blockedVersions,
+        }
+      : row.status === 'blocked'
+        ? {
+            blockRecord: null,
+            // A human unblock overrules the block, so its version is no longer blocked; a policy
+            // lift keeps it blocked for good (PRD FR-P10).
+            ...(isHumanActor(actor) && row.blockRecord?.version
+              ? {
+                  blockedVersions: row.blockedVersions.filter(
+                    (v) => v !== row.blockRecord!.version,
+                  ),
+                }
+              : {}),
+          }
+        : {};
   await tx
     .update(catalogItems)
     .set({
       status: to,
       lastChecked: now,
+      ...blocking,
       ...(override && latest
         ? {
             securityOverride: {

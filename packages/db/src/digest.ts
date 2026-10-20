@@ -31,6 +31,8 @@ export interface Digest {
   promoted: DigestEntry[];
   demoted: DigestEntry[];
   vetoes: DigestEntry[];
+  /** Blocks the policy lifted (vulnerable dependency fixed in a newer version, PRD FR-P10). */
+  lifted: DigestEntry[];
   /** Items held by the latest policy run, counted per failing criterion. */
   heldByCriterion: Array<{ criterion: string; items: number }>;
   latestPolicyRun: { version: string; at: Date; evaluated: number } | null;
@@ -149,6 +151,7 @@ export async function buildDigest(db: Db, weekStart: string): Promise<Digest> {
       .filter((e) => e.from !== null && APPROVED.includes(e.from) && !APPROVED.includes(e.to))
       .map(entry),
     vetoes: events.filter(isVeto).map(entry),
+    lifted: policy.filter((e) => e.from === 'blocked').map(entry),
     heldByCriterion: [...counts]
       .map(([criterion, items]) => ({ criterion, items }))
       .sort((a, b) => b.items - a.items || a.criterion.localeCompare(b.criterion)),

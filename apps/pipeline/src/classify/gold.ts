@@ -1,6 +1,6 @@
 import { createHash } from 'node:crypto';
-import { readFile } from 'node:fs/promises';
-import { parse } from 'yaml';
+import { readFile, writeFile } from 'node:fs/promises';
+import { parse, stringify } from 'yaml';
 import { z } from 'zod';
 import { AppError } from '@cc-setup-agent/core';
 import {
@@ -22,6 +22,8 @@ import {
   type Category,
   type Classification,
   type Kind,
+  type RuleOpinion,
+  type SecondOpinion,
 } from '@cc-setup-agent/shared';
 import { CATALOG_DIR } from '../catalog-config.js';
 import { classifyTool, PROMPT_VERSION, PROMPTS } from './classifier.js';
@@ -29,32 +31,45 @@ import { fetchReadme } from './readme.js';
 import type { ClassifyDeps } from './run.js';
 
 /**
- * The classification gold set (PRD FR-D9a): owner-locked fields from the database, plus the
- * frozen file `catalog/classification-gold.yaml` (kind and category of items the owner approved,
- * as they were when approved). Owner-locked fields win over the file.
+ * The classification gold set (PRD FR-D9a), in two tiers that are scored separately:
+ * - `owner`: owner-locked fields from the database, plus the frozen owner approvals in
+ *   `catalog/classification-gold.yaml` (`items`). Owner-locked fields win.
+ * - `agreement`: frozen high-agreement labels (`agreement_items`): items where Haiku, Sonnet
+ *   (same inputs and prompt) and the deterministic rules all gave the same kind and category.
+ *   Machine labels, clearly marked; they are kept as written so a later prompt is scored against
+ *   them, not against itself.
  */
-export const goldFileSchema = z.object({
-  items: z
-    .array(
-      z.object({
-        id: itemIdSchema,
-        kind: kindSchema.optional(),
-        category: categorySchema.nullable().optional(),
-        source: z.string().min(1),
-      }),
-    )
-    .default([]),
+const goldItemSchema = z.object({
+  id: itemIdSchema,
+  kind: kindSchema.optional(),
+  category: categorySchema.nullable().optional(),
+  source: z.string().min(1),
 });
+export const goldFileSchema = z.object({
+  items: z.array(goldItemSchema).default([]),
+  agreement_items: z.array(goldItemSchema).default([]),
+});
+
+export type GoldTier = 'owner' | 'agreement';
+export const GOLD_TIERS: readonly GoldTier[] = ['owner', 'agreement'];
 
 export interface GoldEntry {
   id: string;
   kind?: Kind;
   category?: Category | null;
   source: string;
+  tier: GoldTier;
 }
 
-export const readGoldFile = async (path = `${CATALOG_DIR}/classification-gold.yaml`) =>
-  goldFileSchema.parse(parse(await readFile(path, 'utf8')) ?? {}).items;
+export const GOLD_FILE = `${CATALOG_DIR}/classification-gold.yaml`;
+
+export async function readGoldFile(path = GOLD_FILE): Promise<GoldEntry[]> {
+  const file = goldFileSchema.parse(parse(await readFile(path, 'utf8')) ?? {});
+  return [
+    ...file.items.map((e) => ({ ...e, tier: 'owner' as const })),
+    ...file.agreement_items.map((e) => ({ ...e, tier: 'agreement' as const })),
+  ];
+}
 
 export async function loadGoldSet(db: Db, fileEntries: GoldEntry[]): Promise<GoldEntry[]> {
   const locked = await db
@@ -72,25 +87,37 @@ export async function loadGoldSet(db: Db, fileEntries: GoldEntry[]): Promise<Gol
         sql`${catalogItems.categorySetBy} is not null`,
       ),
     );
-  const byId = new Map(fileEntries.map((e) => [e.id, { ...e }]));
+  const owner = new Map(fileEntries.filter((e) => e.tier === 'owner').map((e) => [e.id, { ...e }]));
   for (const r of locked) {
-    const entry: GoldEntry = byId.get(r.id) ?? { id: r.id, source: 'owner-locked' };
+    const entry: GoldEntry = owner.get(r.id) ?? {
+      id: r.id,
+      source: 'owner-locked',
+      tier: 'owner',
+    };
     if (r.kindSetBy && r.kind) entry.kind = r.kind;
     if (r.categorySetBy) entry.category = r.category;
     entry.source = `owner-locked (${[r.kindSetBy && 'kind', r.categorySetBy && 'category'].filter(Boolean).join(', ')})`;
-    byId.set(r.id, entry);
+    owner.set(r.id, entry);
   }
-  return [...byId.values()].sort((a, b) => a.id.localeCompare(b.id));
+  // An owner label always wins over a machine label for the same item.
+  const agreement = fileEntries.filter((e) => e.tier === 'agreement' && !owner.has(e.id));
+  return [...owner.values(), ...agreement].sort(
+    (a, b) => a.tier.localeCompare(b.tier) || a.id.localeCompare(b.id),
+  );
 }
 
 export function goldSetHash(entries: GoldEntry[]): string {
-  const material = JSON.stringify(entries.map((e) => [e.id, e.kind ?? null, e.category ?? null]));
+  const material = JSON.stringify(
+    entries.map((e) => [e.tier, e.id, e.kind ?? null, e.category ?? null]),
+  );
   return createHash('sha256').update(material).digest('hex').slice(0, 16);
 }
 
+const ofTier = (gold: GoldEntry[], tier: GoldTier) => gold.filter((g) => g.tier === tier);
+
 /** Compares a classification with a gold entry, only on the fields the entry has. */
 export function scoreAgainstGold(
-  gold: GoldEntry,
+  gold: Pick<GoldEntry, 'kind' | 'category'>,
   c: Pick<Classification, 'kind' | 'category'> | null,
 ): { correct: boolean; mismatches: string[] } {
   if (!c) return { correct: false, mismatches: ['no classification'] };
@@ -102,18 +129,80 @@ export function scoreAgainstGold(
   return { correct: mismatches.length === 0, mismatches };
 }
 
-export interface PromptEvalReport {
-  promptVersion: string;
-  model: string;
+/**
+ * A high-agreement label (PRD FR-D9a, M8.3): Haiku and Sonnet, from the same inputs and prompt,
+ * give the same kind and a category, and the rules hold that same category as their opinion.
+ */
+export function agreementLabel(
+  primary: Classification | null,
+  primaryInputHash: string | null,
+  second: SecondOpinion | null,
+  rules: Pick<RuleOpinion, 'category'>,
+): { kind: Kind; category: Category } | null {
+  if (!primary || !second || !primaryInputHash || primary.category === null) return null;
+  if (second.inputHash !== primaryInputHash || second.promptVersion !== primary.promptVersion)
+    return null;
+  if (second.kind !== primary.kind || second.category !== primary.category) return null;
+  if (rules.category !== primary.category) return null;
+  return { kind: primary.kind, category: primary.category };
+}
+
+/**
+ * Adds new high-agreement labels to the gold file's `agreement_items` (existing ones are kept as
+ * written; owner labels are never touched). Returns the entries added.
+ */
+export async function growAgreementGold(
+  candidates: Array<{ id: string; label: { kind: Kind; category: Category } }>,
+  date: string,
+  path = GOLD_FILE,
+): Promise<GoldEntry[]> {
+  const text = await readFile(path, 'utf8');
+  const file = goldFileSchema.parse(parse(text) ?? {});
+  const known = new Set([...file.items, ...file.agreement_items].map((e) => e.id));
+  const added = candidates
+    .filter((c) => !known.has(c.id))
+    .sort((a, b) => a.id.localeCompare(b.id))
+    .map((c) => ({
+      id: c.id,
+      kind: c.label.kind,
+      category: c.label.category,
+      source: `high-agreement (haiku + sonnet + rules) ${date}`,
+    }));
+  if (added.length === 0) return [];
+  const marker = '\n# Machine labels, not owner labels';
+  const head = text.includes(marker) ? text.slice(0, text.indexOf(marker)) : text.trimEnd();
+  const agreement = [...file.agreement_items, ...added].sort((a, b) => a.id.localeCompare(b.id));
+  await writeFile(
+    path,
+    `${head.trimEnd()}\n${marker}: Haiku, Sonnet and the keyword rules all agreed.\n# Frozen as written; scored as a separate tier. Added by \`classify:gold --grow\`.\n${stringify({ agreement_items: agreement })}`,
+    'utf8',
+  );
+  return added.map((a) => ({ ...a, tier: 'agreement' as const }));
+}
+
+export interface TierScore {
+  tier: GoldTier;
   goldSetHash: string;
   goldSize: number;
   correct: number;
   score: number;
-  costUsd: number;
-  details: Array<{ id: string; correct: boolean; mismatches: string[]; source: string }>;
 }
 
-/** Scores one prompt version on the gold set and records the result (`classify:eval`). */
+export interface PromptEvalReport {
+  promptVersion: string;
+  model: string;
+  tiers: TierScore[];
+  costUsd: number;
+  details: Array<{
+    id: string;
+    tier: GoldTier;
+    correct: boolean;
+    mismatches: string[];
+    source: string;
+  }>;
+}
+
+/** Scores one prompt version on every gold tier and records one row per tier (`classify:eval`). */
 export async function evaluatePrompt(
   deps: ClassifyDeps,
   gold: GoldEntry[],
@@ -134,21 +223,14 @@ export async function evaluatePrompt(
       ),
     );
   const byId = new Map(items.map((i) => [i.id, i]));
-  const report: PromptEvalReport = {
-    promptVersion,
-    model,
-    goldSetHash: goldSetHash(gold),
-    goldSize: gold.length,
-    correct: 0,
-    score: 0,
-    costUsd: 0,
-    details: [],
-  };
+  const report: PromptEvalReport = { promptVersion, model, tiers: [], costUsd: 0, details: [] };
+  const costByTier = new Map<GoldTier, number>();
   for (const entry of gold) {
     const item = byId.get(entry.id);
     if (!item) {
       report.details.push({
         id: entry.id,
+        tier: entry.tier,
         correct: false,
         mismatches: ['item missing'],
         source: entry.source,
@@ -176,21 +258,30 @@ export async function evaluatePrompt(
       },
     );
     report.costUsd += outcome.costUsd;
+    costByTier.set(entry.tier, (costByTier.get(entry.tier) ?? 0) + outcome.costUsd);
     const score = scoreAgainstGold(entry, outcome.ok ? outcome.classification : null);
-    if (score.correct) report.correct++;
-    report.details.push({ id: entry.id, ...score, source: entry.source });
+    report.details.push({ id: entry.id, tier: entry.tier, ...score, source: entry.source });
   }
-  report.score = report.correct / gold.length;
-  await deps.db.insert(classifierEvals).values({
-    promptVersion,
-    model,
-    goldSetHash: report.goldSetHash,
-    goldSize: report.goldSize,
-    correct: report.correct,
-    score: report.score,
-    details: report.details,
-    costUsd: report.costUsd,
-  });
+  for (const tier of GOLD_TIERS) {
+    const entries = ofTier(gold, tier);
+    if (entries.length === 0) continue;
+    const correct = report.details.filter((d) => d.tier === tier && d.correct).length;
+    const row: TierScore = {
+      tier,
+      goldSetHash: goldSetHash(entries),
+      goldSize: entries.length,
+      correct,
+      score: correct / entries.length,
+    };
+    report.tiers.push(row);
+    await deps.db.insert(classifierEvals).values({
+      promptVersion,
+      model,
+      ...row,
+      details: report.details.filter((d) => d.tier === tier),
+      costUsd: costByTier.get(tier) ?? 0,
+    });
+  }
   return report;
 }
 
@@ -213,7 +304,13 @@ export async function appliedPromptVersion(db: Db): Promise<string | null> {
   return row?.version ?? null;
 }
 
-async function latestScore(db: Db, version: string, model: string, goldHash: string) {
+async function latestScore(
+  db: Db,
+  version: string,
+  model: string,
+  tier: GoldTier,
+  goldHash: string,
+) {
   const [row] = await db
     .select({ score: classifierEvals.score, createdAt: classifierEvals.createdAt })
     .from(classifierEvals)
@@ -221,6 +318,7 @@ async function latestScore(db: Db, version: string, model: string, goldHash: str
       and(
         eq(classifierEvals.promptVersion, version),
         eq(classifierEvals.model, model),
+        eq(classifierEvals.tier, tier),
         eq(classifierEvals.goldSetHash, goldHash),
       ),
     )
@@ -231,7 +329,8 @@ async function latestScore(db: Db, version: string, model: string, goldHash: str
 
 /**
  * May `version` be applied (PRD FR-D9a)? Yes when it is already the version in use. A new version
- * needs a gold-set score at least as good as the current version's, on the same gold set and model.
+ * needs, on every gold tier, a score at least as good as the current version's on the same labels
+ * and model.
  */
 export async function promptGate(
   db: Db,
@@ -242,23 +341,27 @@ export async function promptGate(
   const applied = await appliedPromptVersion(db);
   if (applied === null || applied === version)
     return { ok: true, reason: `${version} is the prompt in use` };
-  const hash = goldSetHash(await loadGold());
-  const [next, current] = await Promise.all([
-    latestScore(db, version, model, hash),
-    latestScore(db, applied, model, hash),
-  ]);
-  if (!next || !current)
-    return {
-      ok: false,
-      reason: `score both prompts first: pnpm run pipeline classify:eval --prompt ${!next ? version : applied} (gold set ${hash})`,
-    };
-  return next.score >= current.score
-    ? {
-        ok: true,
-        reason: `${version} scores ${next.score.toFixed(3)} ≥ ${applied} ${current.score.toFixed(3)}`,
-      }
-    : {
+  const gold = await loadGold();
+  const reasons: string[] = [];
+  for (const tier of GOLD_TIERS) {
+    const entries = ofTier(gold, tier);
+    if (entries.length === 0) continue;
+    const hash = goldSetHash(entries);
+    const [next, current] = await Promise.all([
+      latestScore(db, version, model, tier, hash),
+      latestScore(db, applied, model, tier, hash),
+    ]);
+    if (!next || !current)
+      return {
         ok: false,
-        reason: `${version} scores ${next.score.toFixed(3)} < ${applied} ${current.score.toFixed(3)}; not applied`,
+        reason: `score both prompts first: pnpm run pipeline classify:eval --prompt ${!next ? version : applied} (${tier} gold set ${hash})`,
       };
+    if (next.score < current.score)
+      return {
+        ok: false,
+        reason: `${version} scores ${next.score.toFixed(3)} < ${applied} ${current.score.toFixed(3)} on the ${tier} labels; not applied`,
+      };
+    reasons.push(`${tier} ${next.score.toFixed(3)} ≥ ${current.score.toFixed(3)}`);
+  }
+  return { ok: true, reason: `${version} vs ${applied}: ${reasons.join(', ')}` };
 }

@@ -1,7 +1,12 @@
 # Approval policy (PRD 9.2a, FR-P1 to FR-P9). Versioned: every status change it makes is audited
 # with actor `policy:<version>`. Change a rule → bump the version. "When unsure, don't recommend":
 # anything not proven here keeps an item out of recommendations; it never creates a manual task.
-version: policy-v1
+# policy-v2 (2026-10-20): owner approvals get no free pass (re-checked like any item; failing ones
+# go back to candidate); the policy may lift its own vulnerable-dependency blocks on a newer clean
+# version; injection/exfiltration blocks lock the author's org out of auto-approval (FR-P10).
+# policy-v3 (2026-10-20): a policy approval whose gate 3 re-check no longer passes goes back to
+# candidate (same evidence bar as owner approvals).
+version: policy-v3
 
 # Official-vendor tier: provenance from gate 1 (catalog/vendors.yaml orgs, plus Anthropic).
 vendor_tier_provenances: [anthropic, official_vendor]

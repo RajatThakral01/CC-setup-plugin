@@ -2,9 +2,9 @@
 
 ## Current state
 
-- **Session range:** M8.3 (autonomous curation), owner-requested 2026-10-20.
-- **Current milestone:** 8.3 done. The policy report goes to the owner before any snapshot is published; then M9 full evaluation (now the weekly scheduled job) and M10.
-- **Total Anthropic API spend to date:** USD 0.5560 (classification USD 0.4111, incl. M8.3: re-classification USD 0.0371, second opinions USD 0.1962, gold-set score USD 0.0032; M9 pilot USD 0.1449). Weekly cap USD 20, total cap USD 40.
+- **Session range:** M8.3 round 2 (owner answers 2026-10-20: vetoes, policy-v2/v3, gate 3 coverage, gold tiers, snapshot, eval batch, block lifting).
+- **Current milestone:** 8.3 done. Snapshot `2026.10.20-1` published (32 provisional + 1 blocked). Next: owner decisions on eval timeouts and booking (see Open questions), then M10.
+- **Total Anthropic API spend to date (ledger):** USD 11.2771 (eval USD 10.7879, of which USD 10.50 is 7 timed-out runs booked at the USD 1.50 cap; classification USD 0.4892). Weekly cap USD 20 (USD 11.14 used this week), total cap USD 40.
 - **Remote:** https://github.com/RajatThakral01/CC-setup-plugin — pushed after every milestone; CI green.
 
 ## Milestones
@@ -290,7 +290,19 @@ Live (2026-10-20):
 
 Tests: 682 passing (+5 real-Docker run in CI). Details: DECISIONS "Milestone 8.3".
 
+### M8.3 round 2 (owner answers, 2026-10-20)
+
+- Vetoes: discord, claude-md-management, cloudflare-skills.
+- **policy-v2:** owner approvals re-checked. 5 of the 7 others pass on their own (context7, webapp-testing, frontend-design, sentry-for-ai, fetch); clerk and supabase went back to candidate because their bundled remote MCP server can't be verified.
+- **policy-v3:** policy approvals whose gate 3 no longer passes went back to candidate (7).
+- **Gate 3 coverage:** every skill, command and agent text, the config files and bundled MCP servers. `not_run` 55 → 21. A false-positive auto-block of 5 items was fixed and, on the owner's answer, unblocked (davila7 stays blocked on real evidence).
+- **Approval count:** 39 → 32 (−3 vetoes, −2 superseded owner approvals, −7 incomplete security scans, +6 newly scannable Anthropic/Datadog plugins, −1 net from Datadog's block and unblock).
+- **Gold set:** 10 owner + 27 high-agreement labels; classify-v3 scores 7/10 and 24/27.
+- **Block lifting:** policy lifts its own vulnerable-dependency blocks only (FR-P10); org lock for injection/exfiltration; snapshots carry blocked versions.
+- **Eval batch:** chrome-devtools-mcp `equal` vs webapp-testing (15/15 each); playwright-mcp stopped at 3/3; testdino not evaluable (repo-root skill). Booked USD 10.64 against the USD 4.13 approved, because timed-out runs are booked at their cap and the ceiling was not enforced during the runs. Fixed: per-run batch ceiling.
+- Snapshot 2026.10.20-1 published.
+
 ## Open questions
 
-- Owner: review the M8.3 policy report, then decide on publishing a snapshot (it would contain 39 provisional items).
-- Owner (optional): blocked items never return automatically (unblocking stays human-only); allow the policy to lift its own security blocks when a later version is clean?
+- Owner: eval timeouts. 7 of 33 runs hit 300 s and were booked at USD 1.50 each. Raise `EVAL_TIMEOUT_SECONDS`, or book unreadable runs differently (for example from relay-observed usage)?
+- Owner: repo-root skills (testdino and others) can't be fetched by the eval harness yet; build that (free code change) before the next batch?

@@ -51,6 +51,7 @@ export function fixtureSnapshot(generatedAt = '2026-10-19T02:00:00.000Z'): Snaps
     schemaVersion: 1,
     version: '2026.10.19-1',
     generatedAt,
+    blockedVersions: [],
     items: [
       item('example-docs-mcp', {
         install: { method: 'npx', package: '@example/docs-mcp', version: '1.2.0', envVars: [] },

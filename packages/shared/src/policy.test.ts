@@ -3,6 +3,7 @@ import type { EvalSummary, GateResults } from './catalog.js';
 import {
   approvalCriteria,
   approvalPolicySchema,
+  blockCause,
   decide,
   evalNeed,
   type ApprovalPolicy,
@@ -77,6 +78,9 @@ const base = (over: Partial<PolicyFacts> = {}): PolicyFacts => ({
   approvedBy: null,
   veto: null,
   acknowledgedFindings: [],
+  blockRecord: null,
+  blockedVersions: [],
+  orgLock: null,
   now: NOW,
   ...over,
 });
@@ -233,7 +237,7 @@ describe('promotion (FR-P4)', () => {
     ).toBe('promote');
   });
 
-  it('does not promote an owner-approved item that fails the approval criteria', () => {
+  it('does not promote an owner-approved item that fails the approval criteria (v2: demotes it)', () => {
     expect(
       decide(
         provisional({
@@ -243,7 +247,7 @@ describe('promotion (FR-P4)', () => {
         }),
         policy,
       ).action,
-    ).toBe('hold');
+    ).toBe('demote');
   });
 
   it('keeps recommended items as they are without a trigger', () => {
@@ -271,14 +275,15 @@ describe('demotion (FR-P6)', () => {
     ).toMatchObject({ action: 'demote', to: 'blocked', trigger: 'security_finding' });
   });
 
-  it('ignores findings the owner acknowledged with an override note, but not new ones', () => {
+  it('does not block on findings the owner acknowledged, but blocks on new ones', () => {
     const findings = [{ severity: 'high' as const, description: 'known finding' }];
+    // v2: the acknowledged finding doesn't block, but the approval no longer meets the criteria.
     expect(
       decide(
         approved({ approvedBy: 'human:owner', findings, acknowledgedFindings: ['known finding'] }),
         policy,
-      ).action,
-    ).toBe('hold');
+      ),
+    ).toMatchObject({ to: 'candidate', trigger: 'owner_approval_superseded' });
     expect(
       decide(
         approved({
@@ -305,7 +310,7 @@ describe('demotion (FR-P6)', () => {
         policy,
       ),
     ).toMatchObject({ to: 'watchlist' });
-    // An owner approval of a soft-failed item stays valid.
+    // v2: an owner approval of a soft-failed item is superseded (back to candidate, not watchlist).
     expect(
       decide(
         approved({
@@ -313,8 +318,8 @@ describe('demotion (FR-P6)', () => {
           gates: { ...allPass, gate0_hygiene: gate('soft_fail') },
         }),
         policy,
-      ).action,
-    ).toBe('hold');
+      ),
+    ).toMatchObject({ to: 'candidate', trigger: 'owner_approval_superseded' });
   });
 
   it('moves to watchlist after 180 days without a commit', () => {
@@ -379,5 +384,198 @@ describe('evalNeed (FR-P7)', () => {
 
   it('covers provisional items waiting for a promotion eval', () => {
     expect(evalNeed(base({ status: 'recommended_provisional' }), policy).worth).toBe(true);
+  });
+});
+
+describe('owner approvals get no free pass (policy-v2)', () => {
+  const ownerApproved = (over: Partial<PolicyFacts> = {}) =>
+    base({
+      status: 'recommended_provisional',
+      approvedAt: daysAgo(1),
+      approvedBy: 'human:owner',
+      ...over,
+    });
+
+  it('keeps an owner approval that meets the criteria', () => {
+    expect(decide(ownerApproved(), policy).action).toBe('hold');
+  });
+
+  it('moves a failing owner approval back to candidate with an audited reason', () => {
+    const d = decide(
+      ownerApproved({
+        category: null,
+        agreement: { agreed: false, needsSecondOpinion: false, detail: 'no category' },
+      }),
+      policy,
+    );
+    expect(d).toMatchObject({
+      action: 'demote',
+      to: 'candidate',
+      trigger: 'owner_approval_superseded',
+    });
+    expect(d.reason).toMatch(/^owner approval superseded by policy: category_agreed: no category/);
+  });
+
+  it('asks for the second opinion before judging an owner approval on it', () => {
+    expect(
+      decide(
+        ownerApproved({
+          agreement: { agreed: false, needsSecondOpinion: true, detail: 'pending' },
+        }),
+        policy,
+      ),
+    ).toMatchObject({ action: 'hold', needsSecondOpinion: true });
+  });
+
+  it('does not re-judge policy approvals on lapsed criteria', () => {
+    expect(
+      decide(ownerApproved({ approvedBy: 'policy:policy-v1', lastCommitAt: daysAgo(120) }), policy)
+        .action,
+    ).toBe('hold');
+  });
+});
+
+describe('blocks: cause, org lock, blocked versions and lifting (FR-P10)', () => {
+  it('classifies block causes from the findings behind them', () => {
+    expect(blockCause([{ rule: 'vulnerable_dependency' }, { rule: 'vulnerable_dependency' }])).toBe(
+      'vulnerable_dependency',
+    );
+    expect(blockCause([{ rule: 'vulnerable_dependency' }, { rule: 'ignore_instructions' }])).toBe(
+      'injection',
+    );
+    expect(blockCause([{ rule: 'runtime_egress' }])).toBe('exfiltration');
+    expect(blockCause([{}])).toBe('other');
+    expect(blockCause([])).toBe('other');
+  });
+
+  it('records the cause on a security block', () => {
+    const d = decide(
+      base({
+        status: 'recommended_provisional',
+        approvedBy: 'policy:policy-v1',
+        approvedAt: daysAgo(3),
+        findings: [{ severity: 'high', rule: 'vulnerable_dependency', description: 'CVE in dep' }],
+      }),
+      policy,
+    );
+    expect(d).toMatchObject({
+      to: 'blocked',
+      block: { cause: 'vulnerable_dependency', findings: ['CVE in dep'] },
+    });
+  });
+
+  it('never approves an item from a locked org, or a blocked version', () => {
+    expect(failedIds(base({ orgLock: 'author org example is locked' }))).toEqual([
+      'org_not_locked',
+    ]);
+    expect(failedIds(base({ blockedVersions: ['1.2.3'] }))).toEqual(['install_known']);
+    expect(decide(base({ blockedVersions: ['1.2.3'] }), policy).action).toBe('hold');
+  });
+
+  const blocked = (over: Partial<PolicyFacts> = {}) =>
+    base({
+      status: 'blocked',
+      pinnedVersion: '1.2.4',
+      blockedVersions: ['1.2.3'],
+      blockRecord: {
+        by: 'policy:policy-v2',
+        cause: 'vulnerable_dependency',
+        version: '1.2.3',
+        findings: ['CVE in dep'],
+        at: NOW,
+      },
+      ...over,
+    });
+
+  it('lifts its own vulnerable-dependency block on a newer, clean version, back to candidate', () => {
+    const d = decide(blocked(), policy);
+    expect(d).toMatchObject({ action: 'lift', to: 'candidate' });
+    expect(d.reason).toContain('1.2.3 stays blocked');
+  });
+
+  it.each([
+    [
+      'an injection block',
+      {
+        blockRecord: {
+          by: 'policy:policy-v2',
+          cause: 'injection' as const,
+          version: '1.2.3',
+          findings: [],
+          at: NOW,
+        },
+      },
+    ],
+    [
+      'an exfiltration block',
+      {
+        blockRecord: {
+          by: 'policy:policy-v2',
+          cause: 'exfiltration' as const,
+          version: '1.2.3',
+          findings: [],
+          at: NOW,
+        },
+      },
+    ],
+    [
+      'a block by a human',
+      {
+        blockRecord: {
+          by: 'human:owner',
+          cause: 'vulnerable_dependency' as const,
+          version: '1.2.3',
+          findings: [],
+          at: NOW,
+        },
+      },
+    ],
+    [
+      'a block by the gates',
+      {
+        blockRecord: {
+          by: 'system',
+          cause: 'vulnerable_dependency' as const,
+          version: '1.2.3',
+          findings: [],
+          at: NOW,
+        },
+      },
+    ],
+    ['a block with no record', { blockRecord: null }],
+    ['the same version', { pinnedVersion: '1.2.3' }],
+    [
+      'a version that is itself blocked',
+      { pinnedVersion: '1.2.2', blockedVersions: ['1.2.2', '1.2.3'] },
+    ],
+    [
+      'a newer version whose gates do not all pass',
+      { gates: { ...allPass, gate2_health: gate('soft_fail') } },
+    ],
+    [
+      'a newer version still flagged',
+      { findings: [{ severity: 'high' as const, description: 'another CVE' }] },
+    ],
+  ])('never lifts %s', (_label, over) => {
+    expect(decide(blocked(over as Partial<PolicyFacts>), policy).action).toBe('hold');
+  });
+});
+
+describe('policy-v3: incomplete security scans', () => {
+  it('moves a policy approval whose gate 3 no longer passes back to candidate', () => {
+    expect(
+      decide(
+        base({
+          status: 'recommended_provisional',
+          approvedBy: 'policy:policy-v1',
+          approvedAt: daysAgo(1),
+          gates: {
+            ...allPass,
+            gate3_security: gate('soft_fail', 'bundled MCP server(s) not verified'),
+          },
+        }),
+        policy,
+      ),
+    ).toMatchObject({ action: 'demote', to: 'candidate', trigger: 'security_scan_incomplete' });
   });
 });

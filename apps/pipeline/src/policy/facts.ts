@@ -9,11 +9,13 @@ import {
   rawSourceRecords,
   scorecards,
   signalSnapshots,
+  sql,
   statusEvents,
   type Db,
 } from '@cc-setup-agent/db';
 import {
   categoryAgreement,
+  ORG_LOCK_CAUSES,
   ruleOpinion,
   type CategoryRules,
   type PolicyFacts,
@@ -66,6 +68,42 @@ export function ruleInputsFrom(
     topics,
     publisher: owner ?? item.publisher,
   };
+}
+
+export const orgOf = (sourceUrl: string) =>
+  /^https:\/\/github\.com\/([^/]+)\//i.exec(sourceUrl)?.[1]?.toLowerCase() ?? null;
+
+/**
+ * Orgs locked out of auto-approval (PRD FR-P10): an item of theirs was blocked for injection or
+ * exfiltration. Blocks from before M8.3 carry no record; gate 3's confirmed-injection reason marks them.
+ */
+export async function orgLocks(db: Db): Promise<Map<string, string>> {
+  const blocked = await db
+    .select({
+      id: catalogItems.id,
+      sourceUrl: catalogItems.sourceUrl,
+      blockRecord: catalogItems.blockRecord,
+    })
+    .from(catalogItems)
+    .where(eq(catalogItems.status, 'blocked'));
+  const legacy = await db
+    .select({ itemId: statusEvents.itemId })
+    .from(statusEvents)
+    .where(
+      and(
+        eq(statusEvents.toStatus, 'blocked'),
+        sql`${statusEvents.reason} like 'gate 3: confirmed prompt injection%'`,
+      ),
+    );
+  const legacyIds = new Set(legacy.map((l) => l.itemId));
+  const locks = new Map<string, string>();
+  for (const b of blocked) {
+    const org = orgOf(b.sourceUrl);
+    const cause = b.blockRecord?.cause ?? (legacyIds.has(b.id) ? 'injection' : null);
+    if (org && cause && ORG_LOCK_CAUSES.has(cause))
+      locks.set(org, `author org ${org} is locked: ${b.id} was blocked for ${cause}`);
+  }
+  return locks;
 }
 
 /** The category's incumbent (FR-E4), excluding the item itself: recommended first, then provisional. */
@@ -137,6 +175,7 @@ export async function loadPolicyFacts(
       .orderBy(desc(statusEvents.id)),
   ]);
   const pinned = new Map(pins.map((p) => [p.itemId, p.version]));
+  const lockedOrgs = await orgLocks(db);
   const snapshot = new Map(snaps.map((s) => [s.itemId, s]));
   return items.map((item) => {
     const version = pinned.get(item.id) ?? null;
@@ -178,6 +217,9 @@ export async function loadPolicyFacts(
       approvedBy: approved && entered ? entered.actor : null,
       veto: item.policyVeto,
       acknowledgedFindings: item.securityOverride?.findings ?? [],
+      blockRecord: item.blockRecord,
+      blockedVersions: item.blockedVersions,
+      orgLock: lockedOrgs.get(orgOf(item.sourceUrl) ?? '') ?? null,
       now: now.toISOString(),
     };
     const velocity = recs.map((r) => r.starVelocity7d).find((v) => v !== null) ?? null;

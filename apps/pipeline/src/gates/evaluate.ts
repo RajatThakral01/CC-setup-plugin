@@ -38,7 +38,10 @@ export interface GateFacts {
   contributors: number | null;
   weeklyDownloads: number | null;
   findings: Finding[];
-  scanned: { tools: boolean; text: boolean; packages: number };
+  /** What gate 3 could scan: tool definitions, instruction text, config files, packages. */
+  scanned: { tools: boolean; text: boolean; config?: boolean; packages: number };
+  /** MCP servers a plugin bundles, and those whose tools could not be checked (M8.3). */
+  bundled?: { servers: number; unprobed: string[] };
   now: Date;
 }
 
@@ -246,11 +249,23 @@ export function gate3(f: GateFacts): { result: GateResult; block: boolean } {
   const block = counted.some((x) => x.confirmed);
   const severe = counted.some((x) => x.severity === 'high' || x.severity === 'critical');
   const medium = counted.some((x) => x.severity === 'medium');
-  const scannedAnything = f.scanned.tools || f.scanned.text || f.scanned.packages > 0;
+  const scannedAnything =
+    f.scanned.tools || f.scanned.text || f.scanned.config === true || f.scanned.packages > 0;
+  const unprobed = f.bundled?.unprobed ?? [];
   const evidence: Evidence = [
     ev('tool definitions scanned', f.scanned.tools ? String(f.start.tools.length) : 'no'),
     ev('instruction text scanned', f.scanned.text ? 'yes' : 'no'),
+    ev('config files scanned', f.scanned.config ? 'yes' : 'no'),
     ev('packages checked in OSV', String(f.scanned.packages)),
+    ...(f.bundled && f.bundled.servers > 0
+      ? [
+          ev(
+            'bundled MCP servers',
+            `${f.bundled.servers} (${f.bundled.servers - unprobed.length} probed)`,
+          ),
+        ]
+      : []),
+    ...unprobed.map((u) => ev('bundled server not verified', u)),
     ...f.findings.map((x) =>
       ev(
         `${x.severity}: ${x.rule}`,
@@ -259,8 +274,15 @@ export function gate3(f: GateFacts): { result: GateResult; block: boolean } {
       ),
     ),
   ];
+  // A bundled server whose tools we couldn't check is a gap: never a pass.
   const result: GateResult['result'] =
-    block || severe ? 'fail' : medium ? 'soft_fail' : scannedAnything ? 'pass' : 'not_run';
+    block || severe
+      ? 'fail'
+      : medium || (scannedAnything && unprobed.length > 0)
+        ? 'soft_fail'
+        : scannedAnything
+          ? 'pass'
+          : 'not_run';
   return {
     block,
     result: {
@@ -270,7 +292,9 @@ export function gate3(f: GateFacts): { result: GateResult; block: boolean } {
         ? { notes: 'confirmed prompt injection: blocked' }
         : severe
           ? { notes: 'flagged: needs a written override to approve' }
-          : {}),
+          : unprobed.length > 0
+            ? { notes: `bundled MCP server(s) not verified: ${unprobed.join('; ')}` }
+            : {}),
       checkedAt: f.now.toISOString(),
     },
   };

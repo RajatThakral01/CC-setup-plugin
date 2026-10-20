@@ -38,7 +38,13 @@ export function nextSnapshotVersion(now: Date, existingVersions: string[]): stri
  * never appear; items that fail the schema (e.g. a recommended item with no install details) are
  * skipped and reported instead of breaking the snapshot. Output is sorted by id.
  */
-export function buildSnapshot(sources: SnapshotSource[], version: string, now: Date): BuildResult {
+export function buildSnapshot(
+  sources: SnapshotSource[],
+  version: string,
+  now: Date,
+  /** Versions that stay blocked after a lifted block (PRD FR-P10). */
+  blockedVersions: Snapshot['blockedVersions'] = [],
+): BuildResult {
   const skipped: BuildResult['skipped'] = [];
   const items: SnapshotItem[] = [];
   for (const { item, scorecard, pinnedVersion } of [...sources].sort((a, b) =>
@@ -97,6 +103,7 @@ export function buildSnapshot(sources: SnapshotSource[], version: string, now: D
     version,
     generatedAt: now.toISOString(),
     items,
+    blockedVersions: [...blockedVersions].sort((a, b) => a.id.localeCompare(b.id)),
   });
   return { snapshot, skipped };
 }

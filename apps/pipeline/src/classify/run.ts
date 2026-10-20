@@ -4,7 +4,6 @@ import {
   and,
   asc,
   catalogItems,
-  desc,
   eq,
   inArray,
   isNull,
@@ -164,27 +163,6 @@ export function outOfScopeFor(c: Classification, intakeCreated: boolean): string
   return intakeCreated && !isNextjsRelevant(c) ? ['nextjs'] : [];
 }
 
-/** The human who approved the item into its current recommended status, if any. */
-export async function ownerApprover(
-  db: DbOrTx,
-  item: Pick<ItemRow, 'id' | 'status'>,
-): Promise<string | null> {
-  if (item.status !== 'recommended' && item.status !== 'recommended_provisional') return null;
-  const [event] = await db
-    .select({ actor: statusEvents.actor })
-    .from(statusEvents)
-    .where(
-      and(
-        eq(statusEvents.itemId, item.id),
-        eq(statusEvents.toStatus, item.status),
-        ne(statusEvents.fromStatus, item.status),
-      ),
-    )
-    .orderBy(desc(statusEvents.id))
-    .limit(1);
-  return event?.actor.startsWith('human:') ? event.actor : null;
-}
-
 export async function isIntakeCreated(db: DbOrTx, itemId: string): Promise<boolean> {
   const [row] = await db
     .select({ n: sql<number>`count(*)::int` })
@@ -277,17 +255,8 @@ export async function classifyPending(
       report.costUsd += outcome.costUsd;
       if (outcome.ok) {
         const intake = await isIntakeCreated(deps.db, item.id);
-        // An owner approval stays valid (M8.3): the kind and category it was approved with are
-        // kept like owner-set fields, so a re-classification can't drop it from the catalog.
-        const approver = await ownerApprover(deps.db, item);
         const update = applyClassification(
-          approver
-            ? {
-                ...item,
-                kindSetBy: item.kindSetBy ?? approver,
-                categorySetBy: item.categorySetBy ?? approver,
-              }
-            : item,
+          item,
           outcome.classification,
           replaceAll ? { kind: 'all' } : { kind: 'normal', intakeCreated: intake },
         );

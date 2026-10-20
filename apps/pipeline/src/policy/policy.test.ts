@@ -14,6 +14,7 @@ import {
   scorecards,
   signalSnapshots,
   statusEvents,
+  transitionStatus,
   vetoItem,
 } from '@cc-setup-agent/db';
 import { createTestDatabase, type TestDatabase } from '@cc-setup-agent/db/testing';
@@ -481,5 +482,81 @@ describe('scheduled evals (FR-P7)', () => {
     const run = await runAutoEvals(evalDeps(), { trigger: 'scheduled', execute, onPlan, now: NOW });
     expect(order).toEqual(['plan', 'execute']);
     expect(run.results).toHaveLength(1);
+  });
+});
+
+describe('policy-v2 on a database', () => {
+  it('moves a failing owner approval back to candidate, audited as superseded', async () => {
+    await seed({ id: 'example-mcp-alpha', lastCommitDays: 120 });
+    await transitionStatus(
+      t.db,
+      'example-mcp-alpha',
+      'recommended_provisional',
+      'human:owner',
+      'early approval',
+    );
+    await runPolicy(deps().deps, { apply: true, secondOpinions: false, now: NOW });
+    expect(await statusOf('example-mcp-alpha')).toBe('candidate');
+    expect((await lastEvent('example-mcp-alpha'))?.reason).toMatch(
+      /^owner approval superseded by policy: maintained: last commit 120 day/,
+    );
+  });
+
+  it('blocks with a recorded cause, then lifts it once a newer version is clean', async () => {
+    await seed({
+      id: 'example-mcp-alpha',
+      findings: [
+        { severity: 'high', rule: 'vulnerable_dependency', description: 'CVE in dep' } as never,
+      ],
+    });
+    await t.db
+      .update(catalogItems)
+      .set({ status: 'recommended_provisional' })
+      .where(eq(catalogItems.id, 'example-mcp-alpha'));
+    await runPolicy(deps().deps, { apply: true, secondOpinions: false, now: NOW });
+    expect(await statusOf('example-mcp-alpha')).toBe('blocked');
+    // A newer version gets gated clean.
+    await t.db.update(itemVersions).set({ pinned: false });
+    await t.db
+      .insert(itemVersions)
+      .values({ itemId: 'example-mcp-alpha', version: '1.0.1', pinned: true });
+    await t.db.insert(scorecards).values({
+      itemId: 'example-mcp-alpha',
+      version: '1.0.1',
+      gateResults: PASS,
+      securityFindings: [],
+      confidence: 'high',
+    });
+    const report = await runPolicy(deps().deps, { apply: true, secondOpinions: false, now: NOW });
+    expect(report.outcomes[0]?.decision.action).toBe('lift');
+    expect(await statusOf('example-mcp-alpha')).toBe('candidate');
+    const [row] = await t.db
+      .select()
+      .from(catalogItems)
+      .where(eq(catalogItems.id, 'example-mcp-alpha'));
+    expect(row?.blockedVersions).toEqual(['1.0.0']);
+    // Lifted items go back to candidate only; a later run may approve them on their merits.
+    expect((await lastEvent('example-mcp-alpha'))?.actor).toBe('policy:policy-test');
+  });
+
+  it('locks the org of an item blocked for injection out of auto-approval', async () => {
+    await seed({ id: 'example-mcp-alpha' });
+    await seed({ id: 'example-mcp-beta' });
+    await transitionStatus(
+      t.db,
+      'example-mcp-beta',
+      'blocked',
+      'system',
+      'gate 3: confirmed prompt injection',
+      {
+        block: { cause: 'injection', findings: [] },
+      },
+    );
+    await runPolicy(deps().deps, { apply: true, secondOpinions: false, now: NOW });
+    expect(await statusOf('example-mcp-alpha')).toBe('candidate');
+    const decision = (await t.db.select().from(policyDecisions)).find(
+      (d) => d.itemId === 'example-mcp-alpha',
+    );
+    expect(decision?.criteria.find((c) => !c.ok)).toMatchObject({ id: 'org_not_locked' });
   });
 });

@@ -140,6 +140,8 @@ export type GateResults = z.infer<typeof gateResultsSchema>;
 
 export const securityFindingSchema = z.object({
   severity: z.enum(['info', 'low', 'medium', 'high', 'critical']),
+  /** Gate 3 rule that produced it (stored from M8.3 on; older findings have none). */
+  rule: z.string().optional(),
   description: z.string(),
   evidence: z.string().optional(),
 });

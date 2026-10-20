@@ -276,6 +276,21 @@ describe('stores', () => {
   it('keeps the GitHub release store behind the interface but refuses to publish', async () => {
     await expect(new GithubReleaseSnapshotStore().publish()).rejects.toThrow(/not available yet/);
   });
+  it('carries versions that stay blocked, sorted (FR-P10)', () => {
+    const entry = (id: string) => ({
+      id,
+      name: id,
+      package: null,
+      sourceUrl: `https://github.com/example-org/${id}`,
+      versions: ['1.0.0'],
+      reason: 'blocked for security; a newer version fixed it',
+    });
+    const { snapshot } = buildSnapshot([], '2026.10.19-1', now, [
+      entry('example-b'),
+      entry('example-a'),
+    ]);
+    expect(snapshot.blockedVersions.map((b) => b.id)).toEqual(['example-a', 'example-b']);
+  });
   it('serializes deterministically', () => {
     const { snapshot } = buildSnapshot([], '2026.10.19-1', now);
     expect(serializeSnapshot(snapshot).equals(serializeSnapshot(snapshot))).toBe(true);

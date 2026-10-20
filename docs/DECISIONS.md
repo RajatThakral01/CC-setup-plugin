@@ -478,6 +478,78 @@ The plan rests on one run per model on one task, so the harness doesn't hard-cod
 
 **Live run (2026-10-20):** gates re-run on 3 plugins whose install still matched their pre-M8.2 kind (convex, sanity → `plugin`; honeycomb → `manual`, so not approvable). `classify --changed` 140 items (USD 0.0371, 5 category changes). Second opinions: 29 asked, 29 agree (USD 0.1962). **29 items approved to recommended_provisional by `policy:policy-v1`**; 0 promoted; 0 demoted; 111 held. Scheduled eval plan (not run): 3 browser-testing items, worst case USD 4.13. No snapshot published (owner sees the report first).
 
+## Milestone 8.3, round 2 (owner answers, 2026-10-20)
+
+**Vetoes:** discord, claude-md-management and cloudflare-skills (wrong fit: Cloudflare deploy recommended for Vercel), reason "Early owner approval, wrong category/fit.", run by Claude Code on the owner's written instruction through the new `pnpm run pipeline veto` (same audited path as the triage button), actor `human:owner`.
+
+**policy-v2: owner approvals get no free pass.** An item a human approved must meet its tier's criteria like any item; if not, it goes back to candidate (`owner approval superseded by policy: …`). The second opinion is requested first when it is the only missing piece. The M8.3 protection of owner-approved kind/category in re-classification was removed. The data fix to `clerk-skills` (category restored to `auth`) became moot; it was superseded on gate 3 and category.
+
+**policy-v3: same evidence bar for policy approvals.** A policy approval whose gate 3 re-check no longer passes goes back to candidate (`security_scan_incomplete`), mirroring the existing gate 0 rule. Without it, 7 policy approvals would have kept the same unverified bundled servers that superseded two owner approvals. This is a rule change, so it gets a new version. Approval criteria that lapse (for example maintenance) still don't demote; only the listed triggers do.
+
+**Gate 3 gap: why it didn't run, and the fix**
+
+- Owner premise corrected: 55 items had gate 3 `not_run`; the other gate failures among the 79 were soft fails on gates 0 and 2.
+- Causes:
+  - only the first `SKILL.md` was scanned, so command/agent-only plugins, LSP and output-style plugins had nothing scanned;
+  - bundled MCP servers were never probed;
+  - plugin `.mcp.json` files with a top-level server map were counted as 0 servers (they don't use `mcpServers`).
+- Fix (`gates/bundled.ts`, `gatherFacts`):
+  - every skill/command/agent body, the config files Claude Code reads (`.mcp.json`, `.lsp.json`, `hooks/hooks.json`, `plugin.json`) and the marketplace entry are scanned;
+  - bundled servers are parsed in both shapes. Pinned npm/PyPI ones are probed in the sandbox and checked in OSV. Unpinned ones are a medium finding (`unpinned_bundled_server`; e.g. the official playwright plugin runs `@playwright/mcp@latest`). Remote ones are probed over HTTP.
+  - Any bundled server that can't be verified keeps gate 3 at `soft_fail` (never a pass).
+- **False positives found and fixed.** The first full run applied the injection phrase rules to agent and skill instruction text and auto-blocked 6 items. sensitive_file also fired on 40 items, mostly guidance that mentions `.env`. Now, for text first scanned in M8.3:
+  - hidden content keeps full weight (Unicode tag characters block; invisible characters flag);
+  - phrase and sensitive-path matches are recorded as low-severity evidence (`instructionTextFindings`).
+  - The first `SKILL.md` keeps the M4 rules unchanged.
+- 5 of the 6 had no high/critical finding left after the corrected scan. The owner chose to unblock them: done as `human:owner`, with a reason naming the bug. davila7/claude-code-templates stays blocked: its root `SKILL.md` contains "Ignore previous instructions" (unchanged M4 rule), which locks the `davila7` org.
+- **Human unblock overrules the block:** the blocked version is removed from `blocked_versions` (a policy lift keeps it). The 5 rows' stale entries were cleared in the database (data fix of the bug's side effect).
+- Result after the corrected run: gate 3 pass 76, soft_fail 29, fail 14, not_run 21. The remaining `not_run` items are MCP servers with no runnable install, remote servers needing credentials, and manual subagents/hook recipes; none can be approved anyway.
+
+**Security block lifting (FR-P10)**
+
+- Findings now store their gate 3 `rule`.
+- Every block records `block_record` (by, cause, version, findings) and appends the pinned version to `blocked_versions`.
+- Causes, from the findings' rules: `vulnerable_dependency` (all findings), `injection`, `exfiltration`, `other` (unknown rules, including findings stored before M8.3).
+- The policy lifts a block only when all hold:
+  - it made the block;
+  - the cause is `vulnerable_dependency`;
+  - the pinned version is newer and not itself blocked;
+  - gates 0–3 all pass on that exact version;
+  - there is no high/critical finding.
+
+  The item returns to candidate; the blocked version stays blocked.
+
+- `transitionStatus` enforces the same conditions, and refuses approval of any pinned version listed as blocked.
+- `injection`/`exfiltration` blocks (including legacy gate 3 confirmed-injection blocks) lock the author's GitHub org: approval criterion `org_not_locked`.
+- Policy-blocked vulnerable-dependency items are re-gated weekly (`BLOCKED_RECHECK_DAYS` 7), so a fixed version is noticed.
+- Snapshots carry `blockedVersions` (schemaVersion still 1, default empty); the plugin's update check and run warning flag an installed blocked version.
+- No block was lifted in this run (no item qualified).
+
+**Gold set tiers:**
+
+- `catalog/classification-gold.yaml` now has `agreement_items`. These are machine labels where Haiku, Sonnet (same inputs and prompt) and the rules' opinion agree on kind and category. They are frozen as written and marked `high-agreement (haiku + sonnet + rules) <date>`; owner labels always win.
+- `classify:gold [--grow]` adds new ones.
+- `classify:eval` scores each tier separately (`classifier_evals.tier`), and the prompt gate requires ≥ on every tier.
+- Caveat: agreement labels come from classify-v3's own Haiku output, so they flatter v3; their value is catching regressions in a new prompt.
+
+**Eval batch (owner-approved USD 4.13) and the overrun**
+
+- Planned: testdino skill, chrome-devtools-mcp and playwright-mcp against the incumbent webapp-testing; worst case USD 3.31.
+- What happened:
+  - testdino could not run: it is a skill at a repo root, and the harness only fetches skills from GitHub folders (limitation; listed in the gap list).
+  - chrome-devtools-mcp: Stage A 15/15 vs the webapp-testing baseline 15/15 → verdict `equal`, no Stage B.
+  - playwright-mcp: stopped after 3 runs (3/3), no verdict.
+- Booked eval spend USD 10.64:
+  - 26 runs with real usage cost USD 0.143 in total (about USD 0.005 each, as in the pilot);
+  - 7 runs hit the 300 s timeout. Their output was unreadable, so each was booked at the USD 1.50 run cap (the M9 rule that the ledger never under-counts): USD 10.50. Their real cost is unknown here (likely cents; check the Anthropic console).
+- **Bug:** `--max-usd` limited the plan but was not enforced during the runs. Stopped by hand, containers removed.
+- **Fix:** `EvalContext.spendCeiling`. Every run's pre-flight checks eval spend booked since the batch started; `--max-budget-usd`, and so the amount booked on a timeout, is capped at what is left of the ceiling. A run that doesn't fit is refused and the batch stops. Scheduled batches use their planned amount as the ceiling. Test: a ceiling holds even when runs are booked at their cap.
+- **Open issue:** the timeout rate (7/33 at 300 s) makes cap-booking dominate the ledger. Raising `EVAL_TIMEOUT_SECONDS` or changing how unreadable runs are booked is an owner decision (budget accounting).
+
+**Snapshot 2026.10.20-1** published after the final policy run (no LLM calls): 32 recommended_provisional + 1 blocked (davila7, for the warning), 0 skipped.
+
+**Other:** `gates --all`; `auto-evals --max-usd` (an extra ceiling, used for the owner-approved USD 4.13); PRD 0.5 (FR-C9, FR-D9a, FR-P10).
+
 ## Dependencies
 
 One line each: why it was added.

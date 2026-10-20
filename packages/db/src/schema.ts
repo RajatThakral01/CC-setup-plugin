@@ -31,6 +31,7 @@ import {
   type ItemComponents,
   type GateResults,
   type EvalSummary,
+  type BlockRecord,
   type Install,
   type Criterion as PolicyCriterion,
   type PolicyVeto,
@@ -114,6 +115,13 @@ export const catalogItems = pgTable(
     policyVeto: jsonb('policy_veto').$type<PolicyVeto>(),
     /** Findings the owner accepted with an override note when approving (never set by the policy). */
     securityOverride: jsonb('security_override').$type<SecurityOverride>(),
+    /** Why and at which version the item was last blocked (PRD FR-P10). */
+    blockRecord: jsonb('block_record').$type<BlockRecord>(),
+    /** Versions that stay blocked for good, even after the block is lifted. */
+    blockedVersions: text('blocked_versions')
+      .array()
+      .notNull()
+      .default(sql`'{}'::text[]`),
   },
   (t) => [index('catalog_items_status_idx').on(t.status)],
 );
@@ -283,6 +291,8 @@ export const classifierEvals = pgTable(
     id: bigserial('id', { mode: 'number' }).primaryKey(),
     promptVersion: text('prompt_version').notNull(),
     model: text('model').notNull(),
+    /** `owner` (owner labels) or `agreement` (Haiku + Sonnet + rules labels); scored separately. */
+    tier: text('tier').notNull().default('owner'),
     goldSetHash: text('gold_set_hash').notNull(),
     goldSize: integer('gold_size').notNull(),
     correct: integer('correct').notNull(),

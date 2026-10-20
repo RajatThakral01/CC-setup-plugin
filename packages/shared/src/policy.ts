@@ -17,7 +17,7 @@ import {
   type Provenance,
   type Status,
 } from './enums.js';
-import { isPolicyActor } from './status.js';
+import { isHumanActor, isPolicyActor } from './status.js';
 
 /**
  * The approval policy (PRD 9.2a), versioned, in `catalog/policy.yaml`. Every number the rules use
@@ -88,11 +88,18 @@ export interface PolicyFacts {
   veto: { by: string; reason: string; at: string } | null;
   /** High/critical findings the owner accepted with an override note at approval. */
   acknowledgedFindings: string[];
+  /** Why and at which version the item was last blocked (null when not blocked). */
+  blockRecord: BlockRecord | null;
+  /** Versions that stay blocked for good, even after a lift (PRD FR-P10). */
+  blockedVersions: string[];
+  /** Set when the author's org has an item blocked for injection or exfiltration. */
+  orgLock: string | null;
   now: string;
 }
 
 export type CriterionId =
   | 'not_vetoed'
+  | 'org_not_locked'
   | 'gates_pass'
   | 'no_security_flags'
   | 'category_agreed'
@@ -113,10 +120,24 @@ export interface Criterion {
 export type Tier = 'official_vendor' | 'community';
 
 export type DemotionTrigger =
-  'owner_veto' | 'security_finding' | 'install_or_start_failed' | 'abandoned' | 'eval_regression';
+  | 'owner_veto'
+  | 'security_finding'
+  | 'install_or_start_failed'
+  | 'abandoned'
+  | 'eval_regression'
+  | 'owner_approval_superseded'
+  | 'security_scan_incomplete';
 
 export type PolicyDecision =
-  | { action: 'demote'; to: Status; trigger: DemotionTrigger; reason: string }
+  | {
+      action: 'demote';
+      to: Status;
+      trigger: DemotionTrigger;
+      reason: string;
+      /** For blocks: the cause and the findings, recorded on the item (PRD FR-P10). */
+      block?: { cause: BlockCause; findings: string[] };
+    }
+  | { action: 'lift'; to: 'candidate'; reason: string }
   | {
       action: 'approve';
       to: 'recommended_provisional';
@@ -153,7 +174,7 @@ export function newFlags(f: Pick<PolicyFacts, 'findings' | 'acknowledgedFindings
 
 /** Install details a user can actually run, pinned, and matching the item's kind (FR-P2, FR-P5). */
 export function installCheck(
-  f: Pick<PolicyFacts, 'kind' | 'install' | 'pinnedVersion'>,
+  f: Pick<PolicyFacts, 'kind' | 'install' | 'pinnedVersion'> & { blockedVersions?: string[] },
   p: ApprovalPolicy,
 ): Criterion {
   const bad = (detail: string): Criterion => ({ id: 'install_known', ok: false, detail });
@@ -165,6 +186,8 @@ export function installCheck(
   if (!allowed.includes(i.method))
     return bad(`install method ${i.method} does not fit kind ${f.kind}`);
   if (!f.pinnedVersion) return bad('no pinned version');
+  if (f.blockedVersions?.includes(f.pinnedVersion))
+    return bad(`pinned version ${f.pinnedVersion} is blocked`);
   if ((i.method === 'npx' || i.method === 'uvx') && !(i.package && i.version))
     return bad(`${i.method} install without an exact package version`);
   if (i.method === 'remote' && !i.url?.startsWith('https://'))
@@ -225,6 +248,11 @@ export function approvalCriteria(
       id: 'not_vetoed',
       ok: f.veto === null,
       detail: f.veto ? `vetoed by ${f.veto.by}: ${f.veto.reason}` : 'no veto',
+    },
+    {
+      id: 'org_not_locked',
+      ok: f.orgLock === null,
+      detail: f.orgLock ?? 'author org has no injection or exfiltration block',
     },
     {
       id: 'gates_pass',
@@ -298,13 +326,17 @@ export function demotionFor(
       reason: `owner veto by ${f.veto.by}: ${f.veto.reason}`,
     };
   const flags = newFlags(f);
-  if (flags.length > 0)
+  if (flags.length > 0) {
+    const flagged = f.findings.filter((x) => flags.includes(x.description));
+    const cause = blockCause(flagged);
     return {
       action: 'demote',
       to: 'blocked',
       trigger: 'security_finding',
-      reason: `new security finding(s): ${flags.slice(0, 3).join('; ')}`,
+      reason: `new security finding(s) (${cause.replace('_', ' ')}): ${flags.slice(0, 3).join('; ')}`,
+      block: { cause, findings: flags },
     };
+  }
   const g0 = f.gates?.gate0_hygiene;
   if (
     g0?.result === 'fail' ||
@@ -315,6 +347,16 @@ export function demotionFor(
       to: 'watchlist',
       trigger: 'install_or_start_failed',
       reason: `re-check: install or start no longer verified (gate 0 ${g0.result}${g0.notes ? `: ${g0.notes}` : ''})`,
+    };
+  // A policy approval relied on gate 3 passing; if a re-check no longer passes it (for example a
+  // bundled MCP server that can't be verified), the approval lapses (policy-v3).
+  const g3 = f.gates?.gate3_security;
+  if (f.approvedBy && isPolicyActor(f.approvedBy) && g3 && g3.result !== 'pass')
+    return {
+      action: 'demote',
+      to: 'candidate',
+      trigger: 'security_scan_incomplete',
+      reason: `re-check: security gate no longer passes (gate 3 ${g3.result}${g3.notes ? `: ${g3.notes}` : ''})`,
     };
   if (f.lastCommitAt && daysBetween(f.lastCommitAt, f.now) > p.demotion.abandoned_days)
     return {
@@ -338,12 +380,32 @@ export function demotionFor(
  * items, then approval of candidate or watchlist items. Anything uncertain is a `hold`.
  */
 export function decide(f: PolicyFacts, p: ApprovalPolicy): PolicyDecision {
+  if (f.status === 'blocked') return liftFor(f, p);
   const demotion = demotionFor(f, p);
   if (demotion) return demotion;
   const { tier, criteria } = approvalCriteria(f, p);
   const missing = failed(criteria);
   const onlySecondOpinion =
     missing.length === 1 && missing[0]!.id === 'category_agreed' && f.agreement.needsSecondOpinion;
+
+  // Owner approvals get no free pass (policy-v2): they must meet the same criteria as any item.
+  const approved = f.status === 'recommended' || f.status === 'recommended_provisional';
+  if (approved && f.approvedBy && isHumanActor(f.approvedBy) && missing.length > 0) {
+    if (onlySecondOpinion)
+      return {
+        action: 'hold',
+        tier,
+        criteria,
+        needsSecondOpinion: true,
+        reason: 'owner approval re-check: second opinion pending',
+      };
+    return {
+      action: 'demote',
+      to: 'candidate',
+      trigger: 'owner_approval_superseded',
+      reason: `owner approval superseded by policy: ${summarise(missing)}`,
+    };
+  }
 
   if (f.status === 'candidate' || f.status === 'watchlist') {
     if (missing.length === 0)
@@ -449,3 +511,84 @@ export const securityOverrideSchema = z.object({
   at: z.iso.datetime(),
 });
 export type SecurityOverride = z.infer<typeof securityOverrideSchema>;
+
+/** Why an item was blocked (PRD FR-P10). Only `vulnerable_dependency` blocks can ever be lifted. */
+export const BLOCK_CAUSES = [
+  'vulnerable_dependency',
+  'injection',
+  'exfiltration',
+  'other',
+] as const;
+export type BlockCause = (typeof BLOCK_CAUSES)[number];
+
+export const blockRecordSchema = z.object({
+  by: z.string(),
+  cause: z.enum(BLOCK_CAUSES),
+  /** The version that was blocked; it stays blocked for good. */
+  version: z.string().nullable(),
+  findings: z.array(z.string()),
+  at: z.iso.datetime(),
+});
+export type BlockRecord = z.infer<typeof blockRecordSchema>;
+
+const INJECTION_RULES = new Set([
+  'ignore_instructions',
+  'hide_from_user',
+  'override_system',
+  'unicode_tag_chars',
+  'invisible_unicode',
+  'instruction_tag',
+]);
+const EXFILTRATION_RULES = new Set(['runtime_egress', 'exfiltration_language', 'sensitive_file']);
+
+/**
+ * The cause of a block from the findings behind it. Only findings that all come from vulnerable
+ * dependencies make it a `vulnerable_dependency` block; findings without a recorded rule (older
+ * scorecards) count as `other`, which is never lifted automatically.
+ */
+export function blockCause(findings: Array<Pick<SecurityFinding, 'rule'>>): BlockCause {
+  if (findings.some((x) => x.rule && INJECTION_RULES.has(x.rule))) return 'injection';
+  if (findings.some((x) => x.rule && EXFILTRATION_RULES.has(x.rule))) return 'exfiltration';
+  if (findings.length > 0 && findings.every((x) => x.rule === 'vulnerable_dependency'))
+    return 'vulnerable_dependency';
+  return 'other';
+}
+
+/** Causes that lock the author's org out of auto-approval for good. */
+export const ORG_LOCK_CAUSES: ReadonlySet<BlockCause> = new Set(['injection', 'exfiltration']);
+
+/**
+ * May the policy lift its own block (PRD FR-P10)? Only when all hold: the policy blocked it; the
+ * cause was vulnerable dependencies; a newer version is pinned (never a blocked one); gates 0–3
+ * all pass on that exact version with no high/critical finding. The item goes back to candidate,
+ * never straight to a recommended status, and the blocked version stays blocked.
+ */
+export function liftFor(f: PolicyFacts, p: ApprovalPolicy): PolicyDecision {
+  const hold = (reason: string): PolicyDecision => ({
+    action: 'hold',
+    tier: null,
+    criteria: [],
+    needsSecondOpinion: false,
+    reason: `stays blocked: ${reason}`,
+  });
+  const r = f.blockRecord;
+  if (!r) return hold('no block record (blocked before M8.3 or by hand)');
+  if (!isPolicyActor(r.by)) return hold(`blocked by ${r.by}, not by the policy`);
+  if (r.cause !== 'vulnerable_dependency') return hold(`cause ${r.cause} is never lifted`);
+  if (
+    !f.pinnedVersion ||
+    f.pinnedVersion === r.version ||
+    f.blockedVersions.includes(f.pinnedVersion)
+  )
+    return hold(`no newer version than the blocked ${r.version ?? 'version'}`);
+  const failing = p.required_gates.filter((g) => f.gates?.[g]?.result !== 'pass');
+  if (f.gates === null || failing.length > 0)
+    return hold(`version ${f.pinnedVersion}: ${failing.join(', ')} not passing`);
+  const flags = f.findings.filter((x) => FLAG_SEVERITIES.has(x.severity));
+  if (flags.length > 0) return hold(`version ${f.pinnedVersion} still has ${flags.length} flag(s)`);
+  return {
+    action: 'lift',
+    to: 'candidate',
+    reason: `block lifted: version ${f.pinnedVersion} fixes the vulnerable dependencies of ${r.version ?? 'the blocked version'} (gates 0–3 pass); ${r.version ?? 'the blocked version'} stays blocked`,
+  };
+}

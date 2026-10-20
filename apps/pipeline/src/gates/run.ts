@@ -15,6 +15,7 @@ import {
   eq,
   inArray,
   itemVersions,
+  or,
   rawSourceRecords,
   scorecards,
   signalSnapshots,
@@ -41,6 +42,13 @@ import {
 import type { MarketplacePayload } from '../sources/marketplace.js';
 import type { RegistryPayload } from '../sources/registry.js';
 import { githubRepoFromRepositoryUrl, parseSourceUrl } from '../sources/urls.js';
+import {
+  bundledInstall,
+  configPaths,
+  describeBundled,
+  parseBundledServers,
+  type BundledServer,
+} from './bundled.js';
 import { gate0, gate1, gate2, gate3, type GateFacts } from './evaluate.js';
 import { resolveInstall, sandboxShell, type ResolvedInstall } from './install.js';
 import { osvFindings, resolveDirectDeps, type PackageVersion } from './osv.js';
@@ -78,6 +86,7 @@ export interface ItemGateReport {
 }
 
 const SYSTEM = 'system';
+export const BLOCKED_RECHECK_DAYS = 7;
 
 type Item = typeof catalogItems.$inferSelect;
 
@@ -108,6 +117,48 @@ async function weeklyDownloads(deps: GateDeps, name: string): Promise<number | n
   } catch {
     return null;
   }
+}
+
+/**
+ * Gate 3 on instruction and config text that only M8.3 started scanning (every skill, command and
+ * agent body, config files, the marketplace entry). Hidden content keeps its full weight (Unicode
+ * tag characters still block; invisible or bidi characters still flag). The phrase rules were
+ * written for MCP tool descriptions, where text should never instruct the model; skill and agent
+ * bodies instruct the model by design, and configuration guidance mentions `.env` constantly, so
+ * phrase and sensitive-path matches here are recorded as low-severity evidence, not verdicts. The
+ * first SKILL.md keeps the M4 rules unchanged.
+ */
+export function instructionTextFindings(where: string, text: string): Finding[] {
+  const HIDDEN = new Set(['unicode_tag_chars', 'invisible_unicode']);
+  return scanText(where, text).map((f) =>
+    HIDDEN.has(f.rule)
+      ? f
+      : {
+          ...f,
+          severity: 'low' as const,
+          confirmed: false,
+          description: `${f.description} (instruction wording; recorded, not a verdict)`,
+        },
+  );
+}
+
+/** Sandbox options for probing an MCP server (the item itself or one a plugin bundles). */
+function probeOptions(deps: GateDeps): Parameters<typeof probeMcpServer>[2] {
+  return {
+    policy: {
+      allowedImages: [deps.config.GATE_NODE_IMAGE, deps.config.GATE_PYTHON_IMAGE],
+      tempRoot: tmpdir(),
+    },
+    proxyImage: deps.config.GATE_NODE_IMAGE,
+    installTimeoutMs: deps.config.GATE_INSTALL_TIMEOUT_SECONDS * 1000,
+    listToolsTimeoutMs: deps.config.GATE_LIST_TOOLS_TIMEOUT_SECONDS * 1000,
+    limits: {
+      cpus: deps.config.GATE_CPUS,
+      memoryMb: deps.config.GATE_MEMORY_MB,
+      pidsLimit: deps.config.GATE_PIDS_LIMIT,
+    },
+    platform: deps.config.GATE_PLATFORM,
+  };
 }
 
 /** Gathers everything the gates need for one item. Network-heavy; no database writes. */
@@ -233,7 +284,11 @@ export async function gatherFacts(
 
   // Skills, commands and agents in the tree: listed for classification and context cost.
   const componentFiles: ComponentFile[] = [];
-  let bundledServers = 0;
+  const bundled: BundledServer[] = [];
+  // Gate 3 scans everything a skill or plugin adds (M8.3): every command, agent and skill text,
+  // the config files Claude Code reads, and the marketplace entry.
+  const textFindings: Finding[] = [];
+  let configScanned = false;
   if (repo && health?.defaultBranch && (item.kind === 'skill' || item.kind === 'plugin')) {
     const treeRef = folder?.ref ?? health.defaultBranch;
     for (const c of componentPaths(inScope)) {
@@ -243,16 +298,26 @@ export async function gatherFacts(
           : await deps.github.getFileText(repo.fullName, c.path, treeRef).catch(() => undefined);
       if (text) componentFiles.push({ ...c, text });
     }
-    for (const p of inScope.filter((x) => /(^|\/)\.mcp\.json$/.test(x)).slice(0, 5)) {
+    for (const f of componentFiles)
+      if (f.path !== skillPath)
+        textFindings.push(
+          ...instructionTextFindings(f.path, f.text).filter(
+            (x) => x.rule !== 'exfiltration_language',
+          ),
+        );
+    for (const p of configPaths(inScope)) {
       const text = await deps.github.getFileText(repo.fullName, p, treeRef).catch(() => undefined);
-      try {
-        const servers = text ? (JSON.parse(text) as { mcpServers?: unknown }).mcpServers : null;
-        if (servers && typeof servers === 'object') bundledServers += Object.keys(servers).length;
-      } catch {
-        // An unparsable .mcp.json in a third-party repo is ignored here; gate 0 doesn't need it.
-      }
+      if (!text) continue;
+      configScanned = true;
+      textFindings.push(...instructionTextFindings(p, text));
+      if (/(^|\/)\.mcp\.json$/.test(p)) bundled.push(...parseBundledServers(text));
     }
   }
+  if (marketplace) {
+    configScanned = true;
+    textFindings.push(...instructionTextFindings('marketplace entry', JSON.stringify(marketplace)));
+  }
+  const bundledServers = bundled.length;
 
   if (skillText) {
     const fm = /^---\s*\n([\s\S]*?)\n---/.exec(skillText)?.[1] ?? '';
@@ -276,21 +341,7 @@ export async function gatherFacts(
           image: method === 'npx' ? deps.config.GATE_NODE_IMAGE : deps.config.GATE_PYTHON_IMAGE,
           shell,
         },
-        {
-          policy: {
-            allowedImages: [deps.config.GATE_NODE_IMAGE, deps.config.GATE_PYTHON_IMAGE],
-            tempRoot: tmpdir(),
-          },
-          proxyImage: deps.config.GATE_NODE_IMAGE,
-          installTimeoutMs: deps.config.GATE_INSTALL_TIMEOUT_SECONDS * 1000,
-          listToolsTimeoutMs: deps.config.GATE_LIST_TOOLS_TIMEOUT_SECONDS * 1000,
-          limits: {
-            cpus: deps.config.GATE_CPUS,
-            memoryMb: deps.config.GATE_MEMORY_MB,
-            pidsLimit: deps.config.GATE_PIDS_LIMIT,
-          },
-          platform: deps.config.GATE_PLATFORM,
-        },
+        probeOptions(deps),
         deps.logger,
       );
       const detail = `${probe.error ?? 'unknown'}${probe.stderrTail ? ` | stderr: ${probe.stderrTail.slice(-300)}` : ''}`;
@@ -314,7 +365,61 @@ export async function gatherFacts(
   } else if (item.kind === 'mcp_server') {
     start = { status: 'not_attempted', tools: [], detail: 'no npm, PyPI or remote install found' };
   }
-  findings.push(...scanToolDefinitions(start.tools));
+  findings.push(...scanToolDefinitions(start.tools), ...textFindings);
+
+  // Bundled MCP servers (plugins): pinned packages are probed in the sandbox and checked in OSV;
+  // unpinned ones are flagged; the rest can't be verified, which keeps gate 3 from passing.
+  const bundledTools: ToolDefinition[] = [];
+  const bundledPackages: PackageVersion[] = [];
+  const unprobed: string[] = [];
+  for (const server of bundled.slice(0, 5)) {
+    const install = bundledInstall(server);
+    if (install) {
+      const shell = sandboxShell(install);
+      const probe = shell
+        ? await probeMcpServer(
+            deps.docker,
+            {
+              image:
+                install.method === 'npx'
+                  ? deps.config.GATE_NODE_IMAGE
+                  : deps.config.GATE_PYTHON_IMAGE,
+              shell,
+            },
+            probeOptions(deps),
+            deps.logger,
+          )
+        : null;
+      bundledPackages.push({
+        ecosystem: install.method === 'npx' ? 'npm' : 'PyPI',
+        name: install.package!,
+        version: install.version!,
+      });
+      if (probe?.ok) {
+        bundledTools.push(...probe.tools);
+        findings.push(...scanToolDefinitions(probe.tools), ...egressFindings(probe.egress));
+      } else unprobed.push(`${describeBundled(server)}: did not start in the sandbox`);
+    } else if (server.type === 'npm' || server.type === 'pypi') {
+      findings.push({
+        rule: 'unpinned_bundled_server',
+        severity: 'medium',
+        confirmed: false,
+        description: `Bundled MCP server ${server.name} runs ${server.package} without an exact version`,
+        evidence: describeBundled(server),
+      });
+      unprobed.push(`${describeBundled(server)}: not pinned`);
+    } else if (server.type === 'remote') {
+      const remote = await probeRemoteServer(
+        server.url,
+        deps.config.GATE_LIST_TOOLS_TIMEOUT_SECONDS * 1000,
+      );
+      if (remote.status === 'ok') {
+        bundledTools.push(...remote.tools);
+        findings.push(...scanToolDefinitions(remote.tools));
+      } else unprobed.push(`${describeBundled(server)}: ${remote.status}`);
+    } else unprobed.push(`${describeBundled(server)}: not a package we can probe`);
+  }
+  if (bundled.length > 5) unprobed.push(`${bundled.length - 5} more bundled server(s) not probed`);
   if (skillText)
     findings.push(
       ...scanText('SKILL.md', skillText).filter((f) => f.rule !== 'exfiltration_language'),
@@ -339,6 +444,7 @@ export async function gatherFacts(
   }
   if (install.pypi)
     packages.push({ ecosystem: 'PyPI', name: install.pypi.name, version: install.pypi.version });
+  packages.push(...bundledPackages);
   const osv = await osvFindings(deps.http, deps.config.OSV_API_URL, packages);
   findings.push(...osv.findings);
 
@@ -357,10 +463,20 @@ export async function gatherFacts(
     contributors,
     weeklyDownloads: downloads,
     findings,
-    scanned: { tools: start.tools.length > 0, text: Boolean(skillText), packages: osv.checked },
+    scanned: {
+      tools: start.tools.length > 0 || bundledTools.length > 0,
+      text: Boolean(skillText) || componentFiles.length > 0,
+      config: configScanned,
+      packages: osv.checked,
+    },
+    bundled: { servers: bundled.length, unprobed },
     now,
     toolsFromProbe: start.tools,
-    componentEstimate: estimateComponents(componentFiles, start.tools, bundledServers),
+    componentEstimate: estimateComponents(
+      componentFiles,
+      [...start.tools, ...bundledTools],
+      bundledServers,
+    ),
     firstPublishedAt: firstPublished(
       repo?.createdAt,
       (npmPackument ?? install.npm?.packument)?.time?.['created'],
@@ -437,7 +553,8 @@ export async function gateItem(
   const { confidence } = computeConfidence(gateResults);
   const version = facts.install.version;
   const tools = facts.toolsFromProbe;
-  const securityFindings = facts.findings.map(({ severity, description, evidence }) => ({
+  const securityFindings = facts.findings.map(({ rule, severity, description, evidence }) => ({
+    rule,
     severity,
     description,
     ...(evidence ? { evidence } : {}),
@@ -526,7 +643,23 @@ export async function gateItem(
     rejectedBySystem,
   });
   if (change) {
-    await transitionStatus(deps.db, item.id, change.to, SYSTEM, change.reason);
+    await transitionStatus(
+      deps.db,
+      item.id,
+      change.to,
+      SYSTEM,
+      change.reason,
+      change.to === 'blocked'
+        ? {
+            block: {
+              cause: 'injection',
+              findings: securityFindings
+                .filter((f) => f.severity === 'critical')
+                .map((f) => f.description),
+            },
+          }
+        : {},
+    );
     report.statusChange = { from: item.status, ...change };
   }
   return report;
@@ -542,7 +675,7 @@ async function lastStatusActor(db: Db, itemId: string): Promise<string | undefin
   return row?.actor;
 }
 
-export type GateSelection = { itemIds: string[] } | { mode: 'pending' | 'recheck' };
+export type GateSelection = { itemIds: string[] } | { mode: 'pending' | 'recheck' | 'all' };
 
 /**
  * Items to gate. `pending`: never scored, not rejected or blocked (in-scope first).
@@ -558,6 +691,13 @@ export async function selectItems(
     return selection.itemIds.length === 0
       ? []
       : db.select().from(catalogItems).where(inArray(catalogItems.id, selection.itemIds));
+  }
+  if (selection.mode === 'all') {
+    return db
+      .select()
+      .from(catalogItems)
+      .where(sql`${catalogItems.status} <> 'rejected'`)
+      .orderBy(asc(catalogItems.id));
   }
   if (selection.mode === 'pending') {
     return db
@@ -576,13 +716,24 @@ export async function selectItems(
       );
   }
   const stale = new Date(now.getTime() - config.GATE_RECHECK_DAYS * 86_400_000);
+  // Items the policy blocked for vulnerable dependencies are re-checked weekly, so a fixed
+  // version can lift the block (PRD FR-P10).
+  const blockedStale = new Date(now.getTime() - BLOCKED_RECHECK_DAYS * 86_400_000);
   return db
     .select()
     .from(catalogItems)
     .where(
-      and(
-        inArray(catalogItems.status, ['recommended', 'recommended_provisional']),
-        sql`coalesce(${catalogItems.lastChecked}, 'epoch') < ${stale}`,
+      or(
+        and(
+          inArray(catalogItems.status, ['recommended', 'recommended_provisional']),
+          sql`coalesce(${catalogItems.lastChecked}, 'epoch') < ${stale}`,
+        ),
+        and(
+          eq(catalogItems.status, 'blocked'),
+          sql`${catalogItems.blockRecord}->>'cause' = 'vulnerable_dependency'`,
+          sql`${catalogItems.blockRecord}->>'by' like 'policy:%'`,
+          sql`coalesce(${catalogItems.lastChecked}, 'epoch') < ${blockedStale}`,
+        ),
       ),
     )
     .orderBy(asc(catalogItems.lastChecked));

@@ -48,7 +48,11 @@ export const ALLOWED_TRANSITIONS: Readonly<Record<Status, readonly Status[]>> = 
   rejected: ['candidate', 'blocked'],
 };
 
-const HUMAN_ONLY_TRANSITIONS: ReadonlySet<string> = new Set(['blocked->candidate']);
+/**
+ * Unblocking needs a human, or the approval policy lifting its own vulnerable-dependency block on
+ * a newer, clean version (PRD FR-P10; `transitionStatus` enforces those conditions).
+ */
+const UNBLOCK_TRANSITIONS: ReadonlySet<string> = new Set(['blocked->candidate']);
 
 export type TransitionCheck = { ok: true } | { ok: false; reason: string };
 
@@ -77,8 +81,8 @@ export function checkTransition(from: Status, to: Status, actor: string): Transi
   if (APPROVAL_TARGETS.has(to) && !isHumanActor(actor) && !isPolicyActor(actor)) {
     return { ok: false, reason: `only a human or the approval policy may set ${to}` };
   }
-  if (HUMAN_ONLY_TRANSITIONS.has(`${from}->${to}`) && !isHumanActor(actor)) {
-    return { ok: false, reason: `only a human may move ${from} → ${to}` };
+  if (UNBLOCK_TRANSITIONS.has(`${from}->${to}`) && !isHumanActor(actor) && !isPolicyActor(actor)) {
+    return { ok: false, reason: `only a human or the approval policy may move ${from} → ${to}` };
   }
   return { ok: true };
 }

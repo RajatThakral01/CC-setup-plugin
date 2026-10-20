@@ -1,3 +1,6 @@
+import { mkdtemp, readFile, rm, writeFile } from 'node:fs/promises';
+import { tmpdir } from 'node:os';
+import { join } from 'node:path';
 import { afterAll, beforeAll, beforeEach, describe, expect, it, vi } from 'vitest';
 import { createLlmClient, createLogger, parseConfig, type MessagesApi } from '@cc-setup-agent/core';
 import {
@@ -16,7 +19,9 @@ import { createGithubClient } from '../sources/github.js';
 import { createNpmClient } from '../sources/npm.js';
 import { PROMPT_VERSION } from './classifier.js';
 import {
+  agreementLabel,
   evaluatePrompt,
+  growAgreementGold,
   goldSetHash,
   loadGoldSet,
   promptGate,
@@ -142,22 +147,12 @@ describe('classify --changed (PRD FR-D9a)', () => {
   });
 });
 
-describe('owner approvals stay valid', () => {
-  it('keeps the kind and category an owner approved, but not a policy approval', async () => {
+describe('owner approvals get no free pass (policy-v2)', () => {
+  it('re-classifies an owner-approved item like any other', async () => {
     await add({ kind: 'skill', category: 'auth' });
     await transitionStatus(t.db, ID, 'recommended_provisional', 'human:owner', 'looks right');
     const { deps } = setup([reply({ kind: 'skill', category: null })]);
     await classifyPending(deps, { changed: true, loadGold: noGold });
-    expect(await item()).toMatchObject({ kind: 'skill', category: 'auth', categorySetBy: null });
-
-    await t.db.delete(statusEvents);
-    await t.db.delete(catalogItems);
-    await add({ kind: 'skill', category: 'auth' });
-    await transitionStatus(t.db, ID, 'recommended_provisional', 'policy:policy-v1', 'auto');
-    await classifyPending(setup([reply({ kind: 'skill', category: null })]).deps, {
-      changed: true,
-      loadGold: noGold,
-    });
     expect((await item()).category).toBeNull();
   });
 });
@@ -205,25 +200,36 @@ describe('second opinion', () => {
 });
 
 describe('gold set and prompt gate', () => {
-  it('merges owner-locked fields over the frozen file', async () => {
+  const owner = (e: Omit<GoldEntry, 'tier'>): GoldEntry => ({ ...e, tier: 'owner' });
+  const machine = (e: Omit<GoldEntry, 'tier'>): GoldEntry => ({ ...e, tier: 'agreement' });
+
+  it('merges owner-locked fields over the frozen file; owner labels win over machine labels', async () => {
     await add({ kind: 'skill', kindSetBy: 'human:owner', category: 'search' });
     const gold = await loadGoldSet(t.db, [
-      { id: ID, kind: 'mcp_server', category: 'browser_testing', source: 'owner-approved' },
-      { id: 'example-skill-beta', category: 'docs', source: 'owner-approved' },
+      owner({ id: ID, kind: 'mcp_server', category: 'browser_testing', source: 'owner-approved' }),
+      owner({ id: 'example-skill-beta', category: 'docs', source: 'owner-approved' }),
+      machine({ id: ID, kind: 'plugin', category: 'search', source: 'high-agreement' }),
+      machine({
+        id: 'example-mcp-gamma',
+        kind: 'plugin',
+        category: 'search',
+        source: 'high-agreement',
+      }),
     ]);
     expect(gold).toEqual([
-      {
-        id: 'example-mcp',
-        kind: 'skill',
-        category: 'browser_testing',
-        source: 'owner-locked (kind)',
-      },
-      { id: 'example-skill-beta', category: 'docs', source: 'owner-approved' },
+      machine({
+        id: 'example-mcp-gamma',
+        kind: 'plugin',
+        category: 'search',
+        source: 'high-agreement',
+      }),
+      owner({ id: ID, kind: 'skill', category: 'browser_testing', source: 'owner-locked (kind)' }),
+      owner({ id: 'example-skill-beta', category: 'docs', source: 'owner-approved' }),
     ]);
   });
 
   it('scores only the fields a gold entry has', () => {
-    const gold: GoldEntry = { id: ID, category: 'docs', source: 'x' };
+    const gold = owner({ id: ID, category: 'docs', source: 'x' });
     expect(scoreAgainstGold(gold, { kind: 'plugin', category: 'docs' }).correct).toBe(true);
     expect(scoreAgainstGold(gold, { kind: 'plugin', category: null })).toEqual({
       correct: false,
@@ -231,30 +237,92 @@ describe('gold set and prompt gate', () => {
     });
   });
 
-  it('parses the committed gold file', async () => {
+  it('parses the committed gold file, with both tiers marked', async () => {
     const entries = await readGoldFile();
-    expect(entries.length).toBeGreaterThan(0);
-    expect(new Set(entries.map((e) => e.id)).size).toBe(entries.length);
+    expect(entries.filter((e) => e.tier === 'owner').length).toBeGreaterThan(0);
+    expect(new Set(entries.map((e) => `${e.tier}:${e.id}`)).size).toBe(entries.length);
+    for (const e of entries.filter((x) => x.tier === 'agreement'))
+      expect(e.source).toMatch(/^high-agreement/);
   });
 
-  it('scores a prompt version on the gold set and records it', async () => {
+  it('labels only items where Haiku, Sonnet and the rules agree', () => {
+    const c = {
+      kind: 'mcp_server' as const,
+      category: 'browser_testing' as const,
+      stacks: [],
+      technologies: [],
+      summary: 's',
+      provenanceGuess: 'community' as const,
+      relevant: true,
+      model: 'claude-haiku-5-5',
+      promptVersion: PROMPT_VERSION,
+      classifiedAt: new Date().toISOString(),
+    };
+    const second = { ...c, model: 'claude-sonnet-5-5', inputHash: 'h' };
+    expect(agreementLabel(c, 'h', second, { category: 'browser_testing' })).toEqual({
+      kind: 'mcp_server',
+      category: 'browser_testing',
+    });
+    expect(agreementLabel(c, 'h', second, { category: null })).toBeNull();
+    expect(
+      agreementLabel(c, 'h', { ...second, category: 'search' }, { category: 'browser_testing' }),
+    ).toBeNull();
+    expect(agreementLabel(c, 'other', second, { category: 'browser_testing' })).toBeNull();
+  });
+
+  it('grows the agreement tier in the file, keeps existing labels and never touches owner ones', async () => {
+    const dir = await mkdtemp(join(tmpdir(), 'ccsa-gold-'));
+    const path = join(dir, 'gold.yaml');
+    await writeFile(
+      path,
+      '# header\nitems:\n  - id: example-owner\n    category: docs\n    source: owner-approved\n',
+    );
+    const label = { kind: 'skill' as const, category: 'database' as const };
+    expect(
+      await growAgreementGold(
+        [
+          { id: 'example-b', label },
+          { id: 'example-owner', label },
+        ],
+        '2026-10-20',
+        path,
+      ),
+    ).toHaveLength(1);
+    await growAgreementGold(
+      [
+        { id: 'example-a', label },
+        { id: 'example-b', label: { ...label, category: 'search' } },
+      ],
+      '2026-10-21',
+      path,
+    );
+    const entries = await readGoldFile(path);
+    expect(entries.map((e) => [e.tier, e.id, e.category])).toEqual([
+      ['owner', 'example-owner', 'docs'],
+      ['agreement', 'example-a', 'database'],
+      ['agreement', 'example-b', 'database'],
+    ]);
+    expect(await readFile(path, 'utf8')).toContain('# header');
+    await rm(dir, { recursive: true });
+  });
+
+  it('scores each tier separately and records one row per tier', async () => {
     await add();
     const { deps } = setup([reply(), reply({ category: 'search' })]);
-    const gold: GoldEntry[] = [{ id: ID, category: 'browser_testing', source: 'owner-approved' }];
-    const first = await evaluatePrompt(deps, gold);
-    expect(first).toMatchObject({
-      correct: 1,
-      score: 1,
-      goldSize: 1,
-      promptVersion: PROMPT_VERSION,
-    });
-    const second = await evaluatePrompt(deps, gold);
-    expect(second.score).toBe(0);
+    const gold: GoldEntry[] = [
+      owner({ id: ID, category: 'browser_testing', source: 'owner-approved' }),
+      machine({ id: ID, category: 'search', source: 'high-agreement' }),
+    ];
+    const r = await evaluatePrompt(deps, gold);
+    expect(r.tiers.map((x) => [x.tier, x.correct, x.goldSize])).toEqual([
+      ['owner', 1, 1],
+      ['agreement', 1, 1],
+    ]);
     expect(await t.db.select().from(classifierEvals)).toHaveLength(2);
     await expect(evaluatePrompt(deps, [])).rejects.toThrow(/gold set is empty/);
   });
 
-  it('lets the prompt in use run, and gates a new one on its score', async () => {
+  it('lets the prompt in use run, and gates a new one on every tier', async () => {
     await add({
       classification: {
         kind: 'mcp_server',
@@ -270,27 +338,34 @@ describe('gold set and prompt gate', () => {
       },
       classificationState: 'classified',
     });
-    const gold: GoldEntry[] = [{ id: ID, category: 'docs', source: 'x' }];
-    const hash = goldSetHash(gold);
-    const load = async () => gold;
+    const ownerSet = [owner({ id: ID, category: 'docs', source: 'x' })];
+    const machineSet = [machine({ id: ID, category: 'docs', source: 'high-agreement' })];
+    const load = async () => [...ownerSet, ...machineSet];
     expect(await promptGate(t.db, 'classify-v0', 'claude-haiku-5-5', load)).toMatchObject({
       ok: true,
     });
-    // A new version without scores is refused.
     expect(await promptGate(t.db, PROMPT_VERSION, 'claude-haiku-5-5', load)).toMatchObject({
       ok: false,
     });
-    const score = (promptVersion: string, s: number) =>
+    const score = (promptVersion: string, tier: 'owner' | 'agreement', s: number) =>
       t.db.insert(classifierEvals).values({
         promptVersion,
         model: 'claude-haiku-5-5',
-        goldSetHash: hash,
+        tier,
+        goldSetHash: goldSetHash(tier === 'owner' ? ownerSet : machineSet),
         goldSize: 1,
         correct: s,
         score: s,
       });
-    await score('classify-v0', 1);
-    await score(PROMPT_VERSION, 0);
+    for (const tier of ['owner', 'agreement'] as const) {
+      await score('classify-v0', tier, 1);
+      await score(PROMPT_VERSION, tier, 1);
+    }
+    expect(await promptGate(t.db, PROMPT_VERSION, 'claude-haiku-5-5', load)).toMatchObject({
+      ok: true,
+    });
+    // Worse on the machine labels alone is enough to refuse.
+    await score(PROMPT_VERSION, 'agreement', 0);
     expect(await promptGate(t.db, PROMPT_VERSION, 'claude-haiku-5-5', load)).toMatchObject({
       ok: false,
     });
@@ -298,9 +373,5 @@ describe('gold set and prompt gate', () => {
     await expect(classifyPending(deps, { changed: true, loadGold: load })).rejects.toThrow(
       /not applied/,
     );
-    await score(PROMPT_VERSION, 1);
-    expect(await promptGate(t.db, PROMPT_VERSION, 'claude-haiku-5-5', load)).toMatchObject({
-      ok: true,
-    });
   });
 });

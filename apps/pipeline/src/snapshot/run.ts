@@ -15,11 +15,18 @@ import {
   eq,
   inArray,
   itemVersions,
+  ne,
   scorecards,
   snapshots,
+  sql,
   type Db,
 } from '@cc-setup-agent/db';
-import { SNAPSHOT_PUBLIC_KEY_PEM, SNAPSHOT_STATUSES, type AppConfig } from '@cc-setup-agent/shared';
+import {
+  SNAPSHOT_PUBLIC_KEY_PEM,
+  SNAPSHOT_STATUSES,
+  type AppConfig,
+  type Snapshot,
+} from '@cc-setup-agent/shared';
 import {
   buildSnapshot,
   nextSnapshotVersion,
@@ -65,6 +72,27 @@ async function loadSources(db: Db): Promise<SnapshotSource[]> {
   });
 }
 
+/** Blocked versions of items that are no longer blocked themselves (PRD FR-P10). */
+async function loadBlockedVersions(db: Db): Promise<Snapshot['blockedVersions']> {
+  const rows = await db
+    .select()
+    .from(catalogItems)
+    .where(
+      and(
+        ne(catalogItems.status, 'blocked'),
+        sql`cardinality(${catalogItems.blockedVersions}) > 0`,
+      ),
+    );
+  return rows.map((r) => ({
+    id: r.id,
+    name: r.name,
+    package: r.install?.package ?? r.packageName,
+    sourceUrl: r.sourceUrl,
+    versions: r.blockedVersions,
+    reason: 'blocked for security; a newer version fixed it',
+  }));
+}
+
 /**
  * Builds, signs and publishes a catalog snapshot (plan M6, NFR-5). Refuses to publish if the
  * private key does not match the public key embedded in the plugin.
@@ -90,7 +118,12 @@ export async function publishSnapshot(
     (s) => s.version,
   );
   const version = nextSnapshotVersion(now, existing);
-  const { snapshot, skipped } = buildSnapshot(await loadSources(deps.db), version, now);
+  const { snapshot, skipped } = buildSnapshot(
+    await loadSources(deps.db),
+    version,
+    now,
+    await loadBlockedVersions(deps.db),
+  );
   const bytes = serializeSnapshot(snapshot);
   const signature = signBytes(privateKeyPem, bytes);
   if (!verifyBytes(options.publicKeyPem ?? SNAPSHOT_PUBLIC_KEY_PEM, bytes, signature)) {

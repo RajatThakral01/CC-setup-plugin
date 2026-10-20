@@ -32,4 +32,27 @@ describe('checkUpdates', () => {
     ]);
     expect(await blockedWarnings(fixture('next-fresh'), fixtureSnapshot())).toEqual([]);
   });
+
+  it('warns about a version that stays blocked after its item was unblocked (FR-P10)', async () => {
+    const snapshot = {
+      ...fixtureSnapshot(),
+      blockedVersions: [
+        {
+          id: 'example-docs-mcp',
+          name: 'Example Docs MCP',
+          package: '@example/docs-mcp',
+          sourceUrl: 'https://github.com/example-org/example-docs-mcp',
+          versions: ['1.0.0'],
+          reason: 'blocked for security; a newer version fixed it',
+        },
+      ],
+    };
+    const notices = await checkUpdates(fixture('next-blocked'), snapshot);
+    expect(notices.find((n) => n.id === 'example-docs-mcp')).toMatchObject({
+      type: 'blocked',
+      severity: 'critical',
+      message: expect.stringMatching(/1\.0\.0 is BLOCKED/),
+    });
+    expect(await blockedWarnings(fixture('next-blocked'), snapshot)).toHaveLength(2);
+  });
 });

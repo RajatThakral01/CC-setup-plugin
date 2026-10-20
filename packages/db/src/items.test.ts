@@ -8,7 +8,7 @@ import {
   transitionStatus,
   vetoItem,
 } from './items.js';
-import { catalogItems, scorecards, statusEvents } from './schema.js';
+import { catalogItems, itemVersions, scorecards, statusEvents } from './schema.js';
 import { createTestDatabase, type TestDatabase } from './testing.js';
 
 let t: TestDatabase;
@@ -294,5 +294,84 @@ describe('owner veto (PRD FR-P9)', () => {
     await expect(vetoItem(t.db, 'example-missing', 'human:owner', 'x')).rejects.toBeInstanceOf(
       ItemNotFoundError,
     );
+  });
+});
+
+describe('blocks and lifts (PRD FR-P10)', () => {
+  async function pinned(id: string, version: string) {
+    await t.db.update(itemVersions).set({ pinned: false }).where(eq(itemVersions.itemId, id));
+    await t.db
+      .insert(itemVersions)
+      .values({ itemId: id, version, pinned: true })
+      .onConflictDoUpdate({
+        target: [itemVersions.itemId, itemVersions.version],
+        set: { pinned: true },
+      });
+  }
+  const row = async (id: string) =>
+    (await t.db.select().from(catalogItems).where(eq(catalogItems.id, id)))[0]!;
+
+  it('records the cause and blocks the pinned version for good', async () => {
+    const id = await newItem();
+    await pinned(id, '1.0.0');
+    await transitionStatus(t.db, id, 'blocked', 'policy:policy-v2', 'new CVE', {
+      block: { cause: 'vulnerable_dependency', findings: ['CVE in dep'] },
+    });
+    expect(await row(id)).toMatchObject({
+      blockedVersions: ['1.0.0'],
+      blockRecord: { by: 'policy:policy-v2', cause: 'vulnerable_dependency', version: '1.0.0' },
+    });
+  });
+
+  it('lets the policy lift only its own vulnerable-dependency block, on a newer version', async () => {
+    const id = await newItem();
+    await pinned(id, '1.0.0');
+    await transitionStatus(t.db, id, 'blocked', 'policy:policy-v2', 'new CVE', {
+      block: { cause: 'vulnerable_dependency', findings: ['CVE'] },
+    });
+    await expect(
+      transitionStatus(t.db, id, 'candidate', 'policy:policy-v2', 'lift'),
+    ).rejects.toThrow(/no newer, unblocked version/);
+    await pinned(id, '1.0.1');
+    await transitionStatus(t.db, id, 'candidate', 'policy:policy-v2', 'lift: 1.0.1 fixes it');
+    const after = await row(id);
+    expect(after).toMatchObject({
+      status: 'candidate',
+      blockRecord: null,
+      blockedVersions: ['1.0.0'],
+    });
+    // The blocked version can never be approved again.
+    await pinned(id, '1.0.0');
+    await expect(
+      transitionStatus(t.db, id, 'recommended_provisional', 'human:owner', 'x'),
+    ).rejects.toThrow(/version 1.0.0 is blocked/);
+  });
+
+  it('never lifts injection blocks, blocks by others, or blocks without a cause', async () => {
+    for (const [actor, cause] of [
+      ['policy:policy-v2', 'injection'],
+      ['system', 'vulnerable_dependency'],
+      ['human:owner', 'vulnerable_dependency'],
+    ] as const) {
+      const id = await newItem();
+      await pinned(id, '1.0.0');
+      await transitionStatus(t.db, id, 'blocked', actor, 'x', { block: { cause, findings: [] } });
+      await pinned(id, '2.0.0');
+      await expect(
+        transitionStatus(t.db, id, 'candidate', 'policy:policy-v2', 'lift'),
+      ).rejects.toThrow(InvalidTransitionError);
+    }
+    const id = await newItem();
+    await transitionStatus(t.db, id, 'blocked', 'policy:policy-v2', 'x');
+    expect((await row(id)).blockRecord?.cause).toBe('other');
+    // A human can always unblock, and that overrules the block: its version is no longer blocked.
+    const h = await newItem();
+    await pinned(h, '3.0.0');
+    await transitionStatus(t.db, h, 'blocked', 'system', 'x', {
+      block: { cause: 'injection', findings: [] },
+    });
+    expect((await row(h)).blockedVersions).toEqual(['3.0.0']);
+    await transitionStatus(t.db, h, 'candidate', 'human:owner', 'false positive');
+    expect((await row(h)).blockedVersions).toEqual([]);
   });
 });

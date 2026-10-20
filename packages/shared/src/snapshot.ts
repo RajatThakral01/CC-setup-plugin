@@ -99,6 +99,22 @@ export const snapshotSchema = z
     version: snapshotVersionSchema,
     generatedAt: z.iso.datetime(),
     items: z.array(snapshotItemSchema),
+    /**
+     * Versions that stay blocked after a block was lifted (PRD FR-P10): the plugin warns about
+     * them even though the item itself is no longer blocked. Default keeps schemaVersion 1.
+     */
+    blockedVersions: z
+      .array(
+        z.object({
+          id: z.string().min(1),
+          name: z.string().min(1),
+          package: z.string().nullable(),
+          sourceUrl: z.url(),
+          versions: z.array(z.string().min(1)).min(1),
+          reason: z.string(),
+        }),
+      )
+      .default([]),
   })
   .superRefine((s, ctx) => {
     const seen = new Set<string>();

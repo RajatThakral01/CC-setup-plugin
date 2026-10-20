@@ -142,7 +142,14 @@ export async function runPolicy(deps: PolicyDeps, options: PolicyOptions): Promi
     };
     if (decision.action !== 'hold' && options.apply) {
       try {
-        await transitionStatus(deps.db, current.item.id, decision.to, actor, decision.reason);
+        await transitionStatus(
+          deps.db,
+          current.item.id,
+          decision.to,
+          actor,
+          decision.reason,
+          decision.action === 'demote' && decision.block ? { block: decision.block } : {},
+        );
         outcome.applied = true;
       } catch (error) {
         if (!(error instanceof InvalidTransitionError)) throw error;
@@ -164,9 +171,9 @@ async function storeDecision(db: Db, version: string, o: PolicyOutcome, now: Dat
     action: d.action,
     fromStatus: o.from,
     toStatus: d.action === 'hold' ? null : d.to,
-    tier: d.action === 'demote' ? null : d.tier,
+    tier: d.action === 'demote' || d.action === 'lift' ? null : d.tier,
     reason: o.error ? `${d.reason} | refused: ${o.error}` : d.reason,
-    criteria: d.action === 'demote' ? [] : d.criteria,
+    criteria: d.action === 'demote' || d.action === 'lift' ? [] : d.criteria,
     applied: o.applied,
     evaluatedAt: now,
   };
@@ -185,6 +192,7 @@ export function formatPolicyReport(r: PolicyReport, applied: boolean): string {
     ['approve', 'Approved → recommended_provisional'],
     ['promote', 'Promoted → recommended'],
     ['demote', 'Demoted'],
+    ['lift', 'Block lifted → candidate'],
   ] as const) {
     const list = by(action);
     lines.push(`${label}${verb}: ${list.length}`);

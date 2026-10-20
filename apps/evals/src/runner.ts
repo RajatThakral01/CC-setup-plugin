@@ -1,10 +1,16 @@
 import { randomBytes } from 'node:crypto';
 import { assertModelAllowed, type Logger } from '@cc-setup-agent/core';
 import {
+  and,
   assertBudget,
   budgetCapsFromConfig,
+  budgetLedger,
+  BudgetExceededError,
+  eq,
   evalRuns,
+  gte,
   recordSpend,
+  sql,
   type Db,
 } from '@cc-setup-agent/db';
 import type { AppConfig } from '@cc-setup-agent/shared';
@@ -28,6 +34,11 @@ export interface EvalContext {
   image: string;
   /** Measured mean cost per model, refreshed by the caller between batches. */
   measured: () => Promise<MeasuredCosts>;
+  /**
+   * An extra ceiling for a whole batch (e.g. an owner-approved amount): eval spend booked since
+   * `since` may never exceed `limitUsd`, including runs booked at their cap after a timeout.
+   */
+  spendCeiling?: { limitUsd: number; since: Date };
   now?: () => Date;
 }
 
@@ -84,8 +95,20 @@ export async function runOne(
     logger,
     ...(ctx.now ? { now: ctx.now() } : {}),
   });
-  // Hard stop inside Claude Code too: one run can never spend more than the budget left.
-  const maxBudgetUsd = Math.min(config.EVAL_RUN_MAX_USD, remaining.remainingUsd);
+  let ceilingLeft = Infinity;
+  if (ctx.spendCeiling) {
+    const [row] = await db
+      .select({ usd: sql<number>`coalesce(sum(${budgetLedger.costUsd}), 0)::float` })
+      .from(budgetLedger)
+      .where(
+        and(eq(budgetLedger.purpose, 'eval'), gte(budgetLedger.createdAt, ctx.spendCeiling.since)),
+      );
+    ceilingLeft = ctx.spendCeiling.limitUsd - (row?.usd ?? 0);
+    if (ceilingLeft < estimate)
+      throw new BudgetExceededError('batch ceiling', Math.max(0, ceilingLeft), estimate);
+  }
+  // Hard stop inside Claude Code too: one run can never spend (or be booked at) more than is left.
+  const maxBudgetUsd = Math.min(config.EVAL_RUN_MAX_USD, remaining.remainingUsd, ceilingLeft);
   const runId = newRunId();
   logger.info(
     {
