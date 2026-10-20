@@ -1,0 +1,1 @@
+Give the About page its own browser tab title, `About · Example Shop`, and the meta description `Who we are and how the shop works.`, using the Next.js App Router metadata API. Every other page keeps its current title.

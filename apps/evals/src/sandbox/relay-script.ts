@@ -22,6 +22,42 @@ const HOSTS = (process.env.ALLOW_HOSTS || '').split(',').filter(Boolean);
 delete process.env.ANTHROPIC_API_KEY;
 const log = (o) => process.stdout.write(JSON.stringify({ ts: Date.now(), ...o }) + '\\n');
 const allowed = (h) => HOSTS.some((a) => h === a || h.endsWith('.' + a));
+// Usage of every messages response (streaming SSE or JSON), logged once per response, also when the
+// stream is cut short (the agent was killed): 'complete' says whether the response finished.
+const tapUsage = (r, res, path, model) => {
+  const u = { model, input: 0, output: 0, cacheWrite5m: 0, cacheWrite1h: 0, cacheRead: 0 };
+  let saw = false, done = false, logged = false, buf = '', json = '';
+  const sse = String(r.headers['content-type'] || '').includes('text/event-stream');
+  const take = (m) => {
+    if (!m || typeof m !== 'object') return;
+    saw = true;
+    if (typeof m.input_tokens === 'number') u.input = m.input_tokens;
+    if (typeof m.output_tokens === 'number') u.output = Math.max(u.output, m.output_tokens);
+    if (typeof m.cache_read_input_tokens === 'number') u.cacheRead = m.cache_read_input_tokens;
+    if (m.cache_creation && typeof m.cache_creation === 'object') {
+      u.cacheWrite5m = m.cache_creation.ephemeral_5m_input_tokens || 0;
+      u.cacheWrite1h = m.cache_creation.ephemeral_1h_input_tokens || 0;
+    } else if (typeof m.cache_creation_input_tokens === 'number') u.cacheWrite5m = m.cache_creation_input_tokens;
+  };
+  const line = (l) => {
+    if (!l.startsWith('data:')) return;
+    let d; try { d = JSON.parse(l.slice(5).trim()); } catch { return; }
+    if (d.type === 'message_start' && d.message) { if (d.message.model) u.model = d.message.model; take(d.message.usage); }
+    else if (d.type === 'message_delta') take(d.usage);
+    else if (d.type === 'message_stop') done = true;
+  };
+  r.on('data', (c) => {
+    if (sse) { buf += c.toString('utf8'); const parts = buf.split('\\n'); buf = parts.pop() || ''; parts.forEach(line); }
+    else if (json.length < 5000000) json += c.toString('utf8');
+  });
+  const finish = () => {
+    if (logged) return; logged = true;
+    if (sse && buf) line(buf);
+    if (!sse && json) { try { const j = JSON.parse(json); if (j.model) u.model = j.model; take(j.usage); done = true; } catch {} }
+    if (saw) log({ kind: 'usage', path, ...u, complete: done });
+  };
+  r.on('end', finish); r.on('close', finish); r.on('aborted', finish); r.on('error', finish); res.on('close', finish);
+};
 const deny = (res, status, msg) => { res.writeHead(status, { 'content-type': 'application/json' }); res.end(JSON.stringify({ type: 'error', error: { type: 'permission_error', message: msg } })); };
 http.createServer((req, res) => {
   const chunks = [];
@@ -38,7 +74,10 @@ http.createServer((req, res) => {
     headers['x-api-key'] = KEY; headers['content-length'] = String(body.length); headers.host = UP.host;
     const up = (UP.protocol === 'http:' ? http : https).request({ protocol: UP.protocol, hostname: UP.hostname, port: UP.port || (UP.protocol === 'http:' ? 80 : 443), path: UP.pathname.replace(/\\/$/, '') + req.url, method: req.method, headers }, (r) => {
       log({ kind: 'api', path, model, status: r.statusCode });
+      if (path === '/v1/messages' && r.statusCode === 200) tapUsage(r, res, path, model);
       res.writeHead(r.statusCode || 502, r.headers); r.pipe(res);
+      // An upstream that aborts mid-response must not leave the client waiting.
+      r.on('aborted', () => res.destroy()); r.on('error', () => res.destroy());
     });
     up.on('error', (e) => { log({ kind: 'api', path, model, status: 502, error: e.code || 'error' }); if (!res.headersSent) deny(res, 502, 'upstream error'); else res.end(); });
     up.end(body);
@@ -65,7 +104,7 @@ proxy.listen(PROXY_PORT, () => log({ ready: 'proxy' }));
 `;
 
 export interface RelayEvent {
-  kind: 'api' | 'egress';
+  kind: 'api' | 'egress' | 'usage';
   ts: number;
   host?: string;
   port?: number;
@@ -74,6 +113,14 @@ export interface RelayEvent {
   model?: string | null;
   status?: number;
   refused?: string;
+  /** `usage` events: tokens of one messages response, as the API reported them. */
+  input?: number;
+  output?: number;
+  cacheWrite5m?: number;
+  cacheWrite1h?: number;
+  cacheRead?: number;
+  /** False when the response was cut short (for example the agent was killed). */
+  complete?: boolean;
 }
 
 /** Parses the relay's log lines (anything else is ignored). */
@@ -81,7 +128,8 @@ export function parseRelayLog(logs: string): RelayEvent[] {
   return logs.split('\n').flatMap((line) => {
     try {
       const o = JSON.parse(line) as Partial<RelayEvent>;
-      return (o.kind === 'api' || o.kind === 'egress') && typeof o.ts === 'number'
+      return (o.kind === 'api' || o.kind === 'egress' || o.kind === 'usage') &&
+        typeof o.ts === 'number'
         ? [o as RelayEvent]
         : [];
     } catch {

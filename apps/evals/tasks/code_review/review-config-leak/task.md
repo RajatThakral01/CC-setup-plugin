@@ -1,0 +1,1 @@
+A teammate's change is in the working tree (see `git status` and `git diff`). It adds `GET /api/config`, which the browser calls to get the public site name. Review it the way a careful code reviewer would and fix every problem you find before it merges. The endpoint must keep returning the site name as `siteName`.

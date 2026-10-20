@@ -1,0 +1,1 @@
+`GET /api/products` ignores the `maxPrice` query parameter. Make `GET /api/products?maxPrice=40` return only the products whose price is at most 40 (the API shows prices in whole currency units; the database stores cents). Without `maxPrice` it keeps returning every product, and a `maxPrice` that isn't a non-negative number gets HTTP 400 with `{"error": "invalid maxPrice"}`.

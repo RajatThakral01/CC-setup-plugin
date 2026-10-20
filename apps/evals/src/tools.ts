@@ -94,13 +94,25 @@ const treeSchema = z.looseObject({
 });
 const commitSchema = z.looseObject({ sha: z.string().regex(/^[0-9a-f]{40}$/) });
 
-/** Parses `https://github.com/<owner>/<repo>/tree/<ref>/<path>`. */
-export function parseTreeUrl(url: string): { repo: string; ref: string; path: string } | null {
+/**
+ * Parses `https://github.com/<owner>/<repo>/tree/<ref>/<path>`, or a repo root
+ * `https://github.com/<owner>/<repo>` (a skill that lives at the root of its repo; path '').
+ */
+export function parseTreeUrl(
+  url: string,
+): { repo: string; ref: string | null; path: string } | null {
   const m = /^https:\/\/github\.com\/([^/]+\/[^/]+)\/tree\/([^/]+)\/(.+?)\/?$/.exec(url);
-  return m ? { repo: m[1]!, ref: m[2]!, path: m[3]! } : null;
+  if (m) return { repo: m[1]!, ref: m[2]!, path: m[3]! };
+  const root = /^https:\/\/github\.com\/([^/]+\/[^/.]+?)(?:\.git)?\/?$/.exec(url);
+  return root ? { repo: root[1]!, ref: null, path: '' } : null;
 }
 
-const MAX_SKILL_BYTES = 2_000_000;
+/** Text skills can be large (testdino's guides are ~2 MB of Markdown); binaries are skipped. */
+const MAX_SKILL_BYTES = 4_000_000;
+const MAX_SKILL_FILE_BYTES = 512_000;
+/** Repo-root skills: repository plumbing and binary files are not part of the skill. */
+const SKIP_IN_ROOT_SKILL =
+  /^(\.git\/|\.github\/|node_modules\/)|\.(png|jpe?g|gif|webp|ico|pdf|zip|gz|tgz|mp4|mov|woff2?)$/i;
 
 /**
  * Downloads a skill folder at the item's pinned commit (`sha-<commit>`), never a moving branch.
@@ -116,7 +128,7 @@ export function createSkillFetcher(
   };
   return async (item) => {
     const where = parseTreeUrl(item.install?.url ?? item.sourceUrl);
-    if (!where) throw new EvalError(`${item.id}: skill URL is not a GitHub folder URL`);
+    if (!where) throw new EvalError(`${item.id}: skill URL is not a GitHub repo or folder URL`);
     const pinned = /^sha-([0-9a-f]{7,40})$/.exec(item.version)?.[1];
     if (!pinned) throw new EvalError(`${item.id}: pinned version ${item.version} is not a commit`);
     const commit = await http.getJson(
@@ -130,11 +142,20 @@ export function createSkillFetcher(
       { headers },
     );
     if (tree.truncated) throw new EvalError(`${item.id}: repository tree too large to list`);
-    const prefix = `${where.path}/`;
-    const blobs = tree.tree.filter((e) => e.type === 'blob' && e.path.startsWith(prefix));
+    const prefix = where.path ? `${where.path}/` : '';
+    const atRoot = prefix === '';
+    const blobs = tree.tree.filter(
+      (e) =>
+        e.type === 'blob' &&
+        e.path.startsWith(prefix) &&
+        (!atRoot || (!SKIP_IN_ROOT_SKILL.test(e.path) && (e.size ?? 0) <= MAX_SKILL_FILE_BYTES)),
+    );
+    if (atRoot && !blobs.some((b) => /^skill\.md$/i.test(b.path)))
+      throw new EvalError(`${item.id}: no SKILL.md at the root of ${where.repo}`);
     const total = blobs.reduce((s, b) => s + (b.size ?? 0), 0);
-    if (blobs.length === 0) throw new EvalError(`${item.id}: skill folder ${where.path} is empty`);
-    if (total > MAX_SKILL_BYTES) throw new EvalError(`${item.id}: skill folder is over 2 MB`);
+    if (blobs.length === 0)
+      throw new EvalError(`${item.id}: skill folder ${where.path || '(repo root)'} is empty`);
+    if (total > MAX_SKILL_BYTES) throw new EvalError(`${item.id}: skill is over 4 MB`);
     const files: Array<{ path: string; content: Buffer }> = [];
     for (const b of blobs) {
       const res = await http.request(

@@ -1,0 +1,1 @@
+A teammate's change is in the working tree (see `git status` and `git diff`). It adds `GET /api/quote?qty=<n>`, which prices an order of mugs. Review it against its own documentation comment and fix every problem you find before it merges.

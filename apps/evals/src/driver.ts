@@ -12,6 +12,11 @@ export interface RunLimits {
   maxBudgetUsd: number;
   setupTimeoutSeconds: number;
   checkTimeoutSeconds: number;
+  /**
+   * Wall-clock limit for any single Bash command or MCP tool call inside the agent (M8.3): the model
+   * may otherwise ask for up to 600 s per command, longer than the whole run.
+   */
+  commandTimeoutSeconds: number;
 }
 
 export interface RunSpec {
@@ -60,8 +65,11 @@ export function buildClaudeArgs(spec: RunSpec): string[] {
     String(spec.limits.maxTurns),
     '--max-budget-usd',
     String(spec.limits.maxBudgetUsd),
+    // stream-json (needs --verbose in print mode, verified in the 2.1.303 binary): the transcript
+    // is written as it happens, so a run killed at the timeout still shows its last tool calls.
     '--output-format',
-    'json',
+    'stream-json',
+    '--verbose',
     '--dangerously-skip-permissions',
     '--no-session-persistence',
     '--strict-mcp-config',

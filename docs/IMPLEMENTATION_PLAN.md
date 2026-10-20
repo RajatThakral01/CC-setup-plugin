@@ -427,7 +427,7 @@ The eval harness must prove uplift in one category inside USD 17 a week (USD 20 
 5. **Pre-flight check.** Before each batch, estimate cost as runs × measured average for that model; skip and queue the batch if it exceeds the remaining weekly eval budget. Check again before every single run.
 6. **Small tasks.** 5 tasks per category, each solvable in under 15 turns on a small fixture app; `EVAL_MAX_TURNS=15`, `EVAL_TIMEOUT_SECONDS=300`.
 7. **Deterministic grading only.** Pass or fail by tests, file assertions or exact output; no LLM-as-judge.
-8. **Record actual spend.** Read cost and usage from Claude Code's JSON output; if unavailable, compute from token counts and configured prices. Write to the ledger.
+8. **Record actual spend** (amended 2026-10-20, owner decision). Before a run, reserve its cap in the ledger; after it (also after a timeout), replace the reservation with the usage the API relay saw on every response, priced from config. Claude Code's JSON totals are the fallback when the relay missed a response; the cap stays booked only when neither exists although the API answered. A run that hits the time limit fails its task, on either side of the comparison.
 
 #### 9.2 Harness tasks
 

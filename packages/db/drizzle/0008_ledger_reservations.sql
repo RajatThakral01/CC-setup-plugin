@@ -1,0 +1,1 @@
+ALTER TABLE "budget_ledger" ADD COLUMN "reservation" boolean DEFAULT false NOT NULL;

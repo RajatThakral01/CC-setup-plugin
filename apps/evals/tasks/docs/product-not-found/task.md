@@ -1,0 +1,1 @@
+Visiting a product that doesn't exist, for example `/products/no-such-thing`, currently answers with status 200 and a page saying "Unknown product". It must answer with HTTP status 404 and show a page with the heading `Product not found` and a link back to `/products`. Existing products must keep working.

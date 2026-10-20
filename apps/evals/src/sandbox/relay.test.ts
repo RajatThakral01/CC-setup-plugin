@@ -18,8 +18,39 @@ beforeAll(async () => {
     req.on('data', (c: Buffer) => (body += c.toString()));
     req.on('end', () => {
       seen.push({ url: req.url ?? '', headers: req.headers, body });
+      const ev = (o: unknown) => `event: x\ndata: ${JSON.stringify(o)}\n\n`;
+      const start = ev({
+        type: 'message_start',
+        message: {
+          model: 'example-fast',
+          usage: {
+            input_tokens: 120,
+            output_tokens: 1,
+            cache_read_input_tokens: 900,
+            cache_creation_input_tokens: 300,
+            cache_creation: { ephemeral_5m_input_tokens: 200, ephemeral_1h_input_tokens: 100 },
+          },
+        },
+      });
+      if (body.includes('"stream":true')) {
+        res.writeHead(200, { 'content-type': 'text/event-stream' });
+        // Split mid-event to prove the parser buffers across chunks.
+        res.write(start.slice(0, 40));
+        res.write(start.slice(40));
+        if (body.includes('"cut":true')) return void setTimeout(() => res.destroy(), 50);
+        res.write(ev({ type: 'message_delta', usage: { output_tokens: 57 } }));
+        return res.end(ev({ type: 'message_stop' }));
+      }
       res.writeHead(200, { 'content-type': 'application/json' });
-      res.end('{"ok":true}');
+      res.end(
+        req.url === '/v1/messages'
+          ? JSON.stringify({
+              ok: true,
+              model: 'example-fast',
+              usage: { input_tokens: 10, output_tokens: 5 },
+            })
+          : '{"ok":true}',
+      );
     });
   });
   await new Promise<void>((r) => upstream.listen(0, '127.0.0.1', r));
@@ -59,6 +90,7 @@ function post(path: string, body: unknown): Promise<{ status: number; text: stri
         let text = '';
         res.on('data', (c: Buffer) => (text += c.toString()));
         res.on('end', () => resolve({ status: res.statusCode ?? 0, text }));
+        res.on('error', reject);
       },
     );
     req.on('error', reject);
@@ -67,6 +99,40 @@ function post(path: string, body: unknown): Promise<{ status: number; text: stri
 }
 
 describe('eval API relay', () => {
+  const usage = () => parseRelayLog(logs).filter((e) => e.kind === 'usage');
+
+  it('records the usage of streamed and plain messages responses', async () => {
+    const before = usage().length;
+    await post('/v1/messages', { model: 'example-fast', stream: true, messages: [] });
+    await post('/v1/messages', { model: 'example-fast', messages: [] });
+    await new Promise((r) => setTimeout(r, 100));
+    const [streamed, plain] = usage().slice(before);
+    expect(streamed).toMatchObject({
+      model: 'example-fast',
+      input: 120,
+      output: 57,
+      cacheRead: 900,
+      cacheWrite5m: 200,
+      cacheWrite1h: 100,
+      complete: true,
+    });
+    expect(plain).toMatchObject({ input: 10, output: 5, complete: true });
+  });
+
+  it('records what it saw of a response that was cut short', async () => {
+    const before = usage().length;
+    await post('/v1/messages', {
+      model: 'example-fast',
+      stream: true,
+      cut: true,
+      messages: [],
+    }).catch(() => undefined);
+    await new Promise((r) => setTimeout(r, 100));
+    expect(usage().slice(before)).toEqual([
+      expect.objectContaining({ input: 120, output: 1, cacheRead: 900, complete: false }),
+    ]);
+  });
+
   it('forwards allowed models with the real key instead of the placeholder', async () => {
     const r = await post('/v1/messages', { model: 'example-fast', messages: [] });
     expect(r.status).toBe(200);

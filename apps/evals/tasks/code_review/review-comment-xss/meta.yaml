@@ -1,0 +1,4 @@
+id: review-comment-xss
+category: code_review
+version: 1
+title: 'Review: customer reviews on the About page'

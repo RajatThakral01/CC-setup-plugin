@@ -1,0 +1,1 @@
+Old links to `/shop` and to any path under it (for example `/shop/sale/2024`) must permanently redirect to `/products` with HTTP status 308, before any page renders. Implement it with Next.js request interception (the convention current Next.js uses for code that runs before a request is handled). All other paths must behave as before.

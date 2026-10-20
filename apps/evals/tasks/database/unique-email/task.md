@@ -1,0 +1,1 @@
+Subscribing twice with the same email address (in any letter case) creates duplicate rows. Make subscriber emails unique in the database itself, case-insensitively, with a new migration in `db/migrations/` (don't edit `001_init.sql`). `POST /api/subscribe` with `{"email": "..."}` must answer 201 for a new address and 409 with `{"error": "already subscribed"}` for a duplicate.

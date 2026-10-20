@@ -45,6 +45,7 @@ describe.runIf(enabled)('eval Docker driver (real Docker, fake claude)', () => {
         maxBudgetUsd: 0.5,
         setupTimeoutSeconds: 60,
         checkTimeoutSeconds: 60,
+        commandTimeoutSeconds: 30,
       },
     });
     expect(out.setup.ok).toBe(true);

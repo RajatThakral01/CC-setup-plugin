@@ -1,0 +1,4 @@
+id: review-config-leak
+category: code_review
+version: 1
+title: 'Review: client config endpoint'

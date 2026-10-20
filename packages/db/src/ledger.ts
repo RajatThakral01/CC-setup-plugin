@@ -11,7 +11,7 @@ import {
   type TokenUsage,
 } from '@cc-setup-agent/shared';
 import { assertModelAllowed, type Logger } from '@cc-setup-agent/core';
-import type { DbOrTx } from './client.js';
+import type { Db, DbOrTx } from './client.js';
 import { BudgetExceededError } from './errors.js';
 import { budgetLedger } from './schema.js';
 
@@ -127,6 +127,54 @@ export async function recordSpend(
     );
   }
   return costUsd;
+}
+
+/**
+ * Holds a run's cap in the ledger before it starts (M8.3, owner decision): the reservation counts
+ * against every cap while the run is in flight, and `settleReservation` replaces it with the
+ * actual usage afterwards, also after a timeout. Returns the reservation id.
+ */
+export async function reserveSpend(
+  db: DbOrTx,
+  config: AppConfig,
+  hold: { purpose: BudgetPurpose; model: string; costUsd: number; ref: string; now?: Date },
+): Promise<number> {
+  assertModelAllowed(config, hold.model);
+  const now = hold.now ?? new Date();
+  const [row] = await db
+    .insert(budgetLedger)
+    .values({
+      weekStart: isoWeekStart(now),
+      purpose: hold.purpose,
+      model: hold.model,
+      costUsd: hold.costUsd,
+      ref: hold.ref,
+      reservation: true,
+      createdAt: now,
+    })
+    .returning({ id: budgetLedger.id });
+  return row!.id;
+}
+
+/**
+ * Releases a reservation and books what was actually used, in one transaction. With no usage
+ * records the reservation is simply released (nothing was spent). Returns the booked cost.
+ */
+export async function settleReservation(
+  db: Db,
+  config: AppConfig,
+  reservationId: number,
+  actual: SpendRecord[],
+  logger?: Logger,
+): Promise<number> {
+  return db.transaction(async (tx) => {
+    await tx
+      .delete(budgetLedger)
+      .where(and(eq(budgetLedger.id, reservationId), eq(budgetLedger.reservation, true)));
+    let total = 0;
+    for (const record of actual) total += await recordSpend(tx, config, record, logger);
+    return total;
+  });
 }
 
 /** Spend overview for reports. */

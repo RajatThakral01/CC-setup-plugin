@@ -3,3 +3,6 @@
 # a task changes the version and invalidates cached baseline runs.
 category: browser_testing
 version: 1
+# Products these tasks exercise (the fixture's own test runner). Scheduled evals only pick items that
+# need none of their own, or whose technologies are listed here.
+technologies: [playwright]

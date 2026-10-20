@@ -9,13 +9,15 @@ import {
   eq,
   evalRuns,
   gte,
-  recordSpend,
+  reserveSpend,
+  settleReservation,
   sql,
+  type SpendRecord,
   type Db,
 } from '@cc-setup-agent/db';
 import type { AppConfig } from '@cc-setup-agent/shared';
 import type { ArtifactStore } from './artifacts.js';
-import { parseClaudeOutput } from './claude-output.js';
+import { lastToolCalls, parseClaudeOutput } from './claude-output.js';
 import { estimateRunUsd, type MeasuredCosts } from './costs.js';
 import type { EvalDriver, RunLimits } from './driver.js';
 import type { EvalTask } from './tasks.js';
@@ -69,6 +71,7 @@ export function runLimits(config: AppConfig, maxBudgetUsd: number): RunLimits {
     maxBudgetUsd,
     setupTimeoutSeconds: config.EVAL_SETUP_TIMEOUT_SECONDS,
     checkTimeoutSeconds: config.EVAL_CHECK_TIMEOUT_SECONDS,
+    commandTimeoutSeconds: config.EVAL_COMMAND_TIMEOUT_SECONDS,
   };
 }
 
@@ -120,6 +123,16 @@ export async function runOne(
     },
     'eval run starting',
   );
+  // The cap is held in the ledger while the run is in flight and settled from actual usage after
+  // it (also after a timeout). If the driver itself throws, the hold stays: unknown spend is never
+  // under-counted.
+  const reservationId = await reserveSpend(db, config, {
+    purpose: 'eval',
+    model: input.model,
+    costUsd: maxBudgetUsd,
+    ref: `${runId} (reservation)`,
+    ...(ctx.now ? { now: ctx.now() } : {}),
+  });
   const outcome = await ctx.driver.run({
     runId,
     task: input.task,
@@ -148,56 +161,91 @@ export async function runOne(
     ),
   ].sort();
 
-  // Spend: Claude Code's own report per model. If it's missing but the API answered, record the
-  // run's cap so the ledger never under-counts.
+  // Spend (owner decision, M8.3): the relay's per-response usage is what was actually used, so it
+  // settles the reservation. Claude Code's own totals are the fallback when the relay missed a
+  // response; the cap is booked only when neither exists although the API answered.
   const apiCalls = outcome.relay.filter((e) => e.kind === 'api' && e.status === 200).length;
-  let costUsd = 0;
-  if (parsed) {
-    for (const s of parsed.spend) {
-      const model = config.ALLOWED_MODELS.includes(s.model) ? s.model : input.model;
-      costUsd += await recordSpend(
-        db,
-        config,
-        {
-          purpose: 'eval',
-          model,
-          usage: s.usage,
-          ref: runId,
-          ...(s.costUsd !== undefined ? { costUsd: s.costUsd } : {}),
-          ...(ctx.now ? { now: ctx.now() } : {}),
+  const usage = outcome.relay.filter((e) => e.kind === 'usage');
+  const at = ctx.now ? { now: ctx.now() } : {};
+  const modelOf = (m: string | null | undefined) =>
+    m && config.ALLOWED_MODELS.includes(m) ? m : input.model;
+  let actual: SpendRecord[];
+  let settledBy: 'relay' | 'claude' | 'none' | 'cap';
+  if (usage.length > 0 && usage.length >= apiCalls) {
+    settledBy = 'relay';
+    actual = usage.map((e) => ({
+      purpose: 'eval' as const,
+      model: modelOf(e.model),
+      usage: {
+        inputTokens: e.input ?? 0,
+        outputTokens: e.output ?? 0,
+        cacheWrite5mTokens: e.cacheWrite5m ?? 0,
+        cacheWrite1hTokens: e.cacheWrite1h ?? 0,
+        cacheReadTokens: e.cacheRead ?? 0,
+      },
+      ref: e.complete === false ? `${runId} (response cut short)` : runId,
+      ...at,
+    }));
+  } else if (parsed) {
+    settledBy = 'claude';
+    if (usage.length > 0) errors.push('relay missed some responses; Claude Code totals booked');
+    actual = parsed.spend.map((s) => ({
+      purpose: 'eval' as const,
+      model: modelOf(s.model),
+      usage: s.usage,
+      ref: runId,
+      ...(s.costUsd !== undefined ? { costUsd: s.costUsd } : {}),
+      ...at,
+    }));
+  } else if (apiCalls === 0) {
+    settledBy = 'none';
+    actual = [];
+  } else {
+    settledBy = 'cap';
+    errors.push('usage unknown: run cap booked');
+    actual = [
+      {
+        purpose: 'eval',
+        model: input.model,
+        usage: {
+          inputTokens: 0,
+          outputTokens: 0,
+          cacheWrite5mTokens: 0,
+          cacheWrite1hTokens: 0,
+          cacheReadTokens: 0,
         },
-        logger,
-      );
-    }
-  } else if (outcome.agent) {
-    errors.push('claude output could not be parsed');
-    if (apiCalls > 0) {
-      costUsd = await recordSpend(
-        db,
-        config,
-        {
-          purpose: 'eval',
-          model: input.model,
-          usage: {
-            inputTokens: 0,
-            outputTokens: 0,
-            cacheWrite5mTokens: 0,
-            cacheWrite1hTokens: 0,
-            cacheReadTokens: 0,
-          },
-          costUsd: maxBudgetUsd,
-          ref: `${runId} (unparsed output: cap recorded)`,
-          ...(ctx.now ? { now: ctx.now() } : {}),
-        },
-        logger,
-      );
-    }
+        costUsd: maxBudgetUsd,
+        ref: `${runId} (usage unknown: cap booked)`,
+        ...at,
+      },
+    ];
   }
+  if (!parsed && outcome.agent) errors.push('claude output could not be parsed');
+  const costUsd = await settleReservation(db, config, reservationId, actual, logger);
+  const relayTokens = (f: (e: (typeof usage)[number]) => number) =>
+    usage.reduce((sum, e) => sum + f(e), 0);
+  const inputTokens =
+    settledBy === 'relay'
+      ? relayTokens(
+          (e) =>
+            (e.input ?? 0) + (e.cacheWrite5m ?? 0) + (e.cacheWrite1h ?? 0) + (e.cacheRead ?? 0),
+        )
+      : (parsed?.inputTokens ?? 0);
+  const outputTokens =
+    settledBy === 'relay' ? relayTokens((e) => e.output ?? 0) : (parsed?.outputTokens ?? 0);
 
-  const success = outcome.setup.ok && outcome.check?.passed === true;
+  // What the agent was doing at the end (stream-json transcript), for timeout diagnosis.
+  const toolCalls = outcome.agent ? lastToolCalls(outcome.agent.stdout) : [];
+  const hung = outcome.agent?.timedOut ? toolCalls.find((c) => c.pending) : undefined;
+  if (hung) errors.push(`killed during ${hung.name}: ${hung.input.slice(0, 120)}`);
+
+  // A run that hit the time limit failed its task, whichever side it was on (candidate or
+  // baseline go through this same function), even if the check passes on what it left behind.
+  const success =
+    outcome.setup.ok && outcome.check?.passed === true && outcome.agent?.timedOut !== true;
   const wallSeconds = outcome.agent?.wallSeconds ?? 0;
   const logsRef = await ctx.artifacts.putRun(runId, {
-    'claude-stdout.json': outcome.agent?.stdout ?? '',
+    'claude-stdout.jsonl': outcome.agent?.stdout ?? '',
     'claude-stderr.txt': outcome.agent?.stderr ?? '',
     'setup.txt': outcome.setup.output,
     'check.txt': outcome.check?.output ?? '',
@@ -216,6 +264,8 @@ export async function runOne(
         image: ctx.image,
         platform: outcome.platform,
         maxBudgetUsd,
+        settledBy,
+        lastToolCalls: toolCalls,
         success,
         errors,
         egressDenied,
@@ -232,8 +282,8 @@ export async function runOne(
     itemId: input.tool.kind === 'none' ? null : input.tool.item.id,
     success,
     costUsd,
-    inputTokens: parsed?.inputTokens ?? 0,
-    outputTokens: parsed?.outputTokens ?? 0,
+    inputTokens,
+    outputTokens,
     wallSeconds,
     errors,
     numTurns: parsed?.numTurns ?? null,
@@ -257,6 +307,7 @@ export async function runOne(
     errors: errors.length,
     logsRef,
     stage: input.stage,
+    costSource: settledBy,
     ...(ctx.now ? { createdAt: ctx.now() } : {}),
   });
   logger.info({ ...record, errors: errors.length }, 'eval run finished');

@@ -11,6 +11,10 @@ export interface FakeRunBehaviour {
   /** Raw stdout instead of the canned JSON (e.g. to simulate unparseable output). */
   stdout?: string;
   relay?: RelayEvent[];
+  /** The agent hit the run's time limit. */
+  timedOut?: boolean;
+  /** Runs while the "agent" is in flight (e.g. to inspect the ledger mid-run). */
+  during?: () => Promise<void>;
 }
 
 /** Canned `claude -p --output-format json` result in the documented shape. */
@@ -45,14 +49,15 @@ export function createFakeDriver(
     async run(spec): Promise<RunOutcome> {
       calls.push(spec);
       const b = behaviour(spec);
+      await b.during?.();
       return {
         setup: { ok: true, output: '' },
         agent: {
           stdout: b.stdout ?? cannedClaudeJson(b.model ?? spec.model, b.costUsd, b.subtype),
           stderr: '',
           exitCode: 0,
-          wallSeconds: 12,
-          timedOut: false,
+          wallSeconds: b.timedOut ? 300 : 12,
+          timedOut: b.timedOut ?? false,
         },
         check: { passed: b.success, exitCode: b.success ? 0 : 1, output: '', timedOut: false },
         relay: b.relay ?? [

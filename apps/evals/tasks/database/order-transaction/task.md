@@ -1,0 +1,1 @@
+Ordering more of a product than is in stock answers with a 500 error and still records the order. Make `POST /api/orders` (body `{"productId": <id>, "quantity": <n>}`) atomic: if there isn't enough stock, answer 409 with `{"error": "insufficient stock"}` and change nothing; otherwise record the order and decrement the stock together, and answer 201.

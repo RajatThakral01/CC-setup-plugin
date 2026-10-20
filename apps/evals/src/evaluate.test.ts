@@ -64,6 +64,7 @@ const task = (id: string): EvalTask => ({
 const taskSet = (n: number): TaskSet => ({
   category: 'browser_testing',
   version: 'browser_testing-v1-test0001',
+  technologies: [],
   tasks: Array.from({ length: n }, (_, i) => task(`example-task-${i + 1}`)),
 });
 
@@ -280,6 +281,115 @@ describe('runOne', () => {
     expect(driver.calls).toHaveLength(2);
   });
 
+  const relayUsage = (model: string, input: number, output: number, complete = true) => ({
+    kind: 'usage' as const,
+    ts: 2,
+    path: '/v1/messages',
+    model,
+    input,
+    output,
+    cacheWrite5m: 0,
+    cacheWrite1h: 0,
+    cacheRead: 1000,
+    complete,
+  });
+  const api = (model: string) => ({
+    kind: 'api' as const,
+    ts: 1,
+    path: '/v1/messages',
+    model,
+    status: 200,
+  });
+  const spec = (stage: 'screen' | 'baseline' = 'screen') => ({
+    task: task('x'),
+    taskSetVersion: 'v',
+    tool: stage === 'baseline' ? ({ kind: 'none' } as const) : candidate,
+    model: FAST,
+    stage,
+    baselineItemId: null,
+  });
+
+  it('settles the reservation from the relay usage, not from the cap or Claude Code totals', async () => {
+    let midRun: Array<{ reservation: boolean; costUsd: number }> = [];
+    const { ctx } = await context(() => ({
+      success: true,
+      costUsd: 0.9, // Claude Code's client-side estimate: ignored when the relay saw every response
+      relay: [api(FAST), relayUsage(FAST, 1000, 200), api(FAST), relayUsage(FAST, 2000, 300)],
+      during: async () => {
+        midRun = await t.db
+          .select({ reservation: budgetLedger.reservation, costUsd: budgetLedger.costUsd })
+          .from(budgetLedger);
+      },
+    }));
+    const r = await runOne(ctx, spec());
+    // While the run was in flight, the whole cap (USD 1.50) was held.
+    expect(midRun).toEqual([{ reservation: true, costUsd: 1.5 }]);
+    const rows = await t.db.select().from(budgetLedger);
+    expect(rows.every((x) => !x.reservation)).toBe(true);
+    expect(rows).toHaveLength(2);
+    // Haiku 5.5: 3000 in × 0.10 + 500 out × 0.50 + 2000 cache read × 0.01, per million.
+    expect(r.costUsd).toBeCloseTo((3000 * 0.1 + 500 * 0.5 + 2000 * 0.01) / 1e6, 9);
+    expect(r).toMatchObject({ inputTokens: 5000, outputTokens: 500 });
+    expect((await t.db.select().from(evalRuns))[0]?.costSource).toBe('relay');
+  });
+
+  it('books actual usage after a timeout and counts the timeout as a task failure', async () => {
+    const { ctx } = await context(() => ({
+      success: true, // the check passes on what the agent left behind
+      costUsd: 0,
+      timedOut: true,
+      stdout: [
+        JSON.stringify({
+          type: 'assistant',
+          message: {
+            content: [{ type: 'tool_use', id: 't1', name: 'Bash', input: { command: 'npm test' } }],
+          },
+        }),
+        JSON.stringify({
+          type: 'user',
+          message: { content: [{ type: 'tool_result', tool_use_id: 't1' }] },
+        }),
+        JSON.stringify({
+          type: 'assistant',
+          message: {
+            content: [
+              { type: 'tool_use', id: 't2', name: 'Bash', input: { command: 'npm run dev' } },
+            ],
+          },
+        }),
+      ].join('\n'),
+      relay: [api(FAST), relayUsage(FAST, 1000, 100, false)],
+    }));
+    const r = await runOne(ctx, spec());
+    expect(r.success).toBe(false);
+    expect(r.costUsd).toBeLessThan(0.01);
+    expect(r.errors).toContain('claude timed out');
+    expect(r.errors).toContainEqual(expect.stringMatching(/^killed during Bash: .*npm run dev/));
+    const rows = await t.db.select().from(budgetLedger);
+    expect(rows.map((x) => x.ref)).toEqual([expect.stringMatching(/response cut short/)]);
+  });
+
+  it('treats a baseline timeout exactly like a candidate timeout', async () => {
+    const { ctx } = await context(() => ({
+      success: true,
+      costUsd: 0,
+      timedOut: true,
+      stdout: '',
+      relay: [api(FAST), relayUsage(FAST, 10, 1, false)],
+    }));
+    const [cand, base] = [await runOne(ctx, spec('screen')), await runOne(ctx, spec('baseline'))];
+    expect(cand.success).toBe(false);
+    expect(base.success).toBe(false);
+    expect(base.costUsd).toBeCloseTo(cand.costUsd, 12);
+  });
+
+  it('releases the reservation when no API call was made', async () => {
+    const { ctx } = await context(() => ({ success: false, costUsd: 0, stdout: '', relay: [] }));
+    const r = await runOne(ctx, spec());
+    expect(r.costUsd).toBe(0);
+    expect(await t.db.select().from(budgetLedger)).toEqual([]);
+  });
+
   it('records the run cap when the output is unreadable but the API answered', async () => {
     const { ctx } = await context(() => ({ success: false, costUsd: 0, stdout: 'crash' }));
     const r = await runOne(ctx, {
@@ -293,6 +403,10 @@ describe('runOne', () => {
     expect(r.costUsd).toBe(1.5);
     expect(r.errors).toContain('claude output could not be parsed');
     expect(await ledgerTotal('eval')).toBe(1.5);
+    // A cap booking is not a measurement: cost estimates leave it out.
+    const [row] = await t.db.select().from(evalRuns);
+    expect(row?.costSource).toBe('cap');
+    expect((await measuredCosts(t.db)).get(FAST)).toBeUndefined();
   });
 
   it('reports requests the relay refused for a forbidden model', async () => {

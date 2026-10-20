@@ -550,6 +550,42 @@ The plan rests on one run per model on one task, so the harness doesn't hard-cod
 
 **Other:** `gates --all`; `auto-evals --max-usd` (an extra ceiling, used for the owner-approved USD 4.13); PRD 0.5 (FR-C9, FR-D9a, FR-P10).
 
+## Milestone 8.3, round 3 (eval booking, timeouts, root skills, task sets; owner request 2026-10-20)
+
+Recovered after the laptop restarted mid-session: tasks 1–3 were mostly written but uncommitted, code_review's `meta.yaml` files were invalid YAML, typecheck and Prettier failed, migration 0008 wasn't applied, and one empty eval network (`ccsa-evalnet-20261020-81a1b87da7`) was left over (removed with `pnpm evals cleanup`). No ledger rows or eval runs were written by the interrupted session.
+
+**Eval cost booking (owner decision: actual usage, the cap only as a reservation)**
+
+- The relay logs a `usage` event for every `/v1/messages` 200 response, streamed (SSE `message_start` / `message_delta`) or plain JSON, including one cut short when the agent is killed (`complete: false`).
+- `runOne` reserves the run's cap (`budget_ledger.reservation = true`) before the run; the reservation counts against every cap while the run is in flight. `settleReservation` deletes it and books the actual usage in one transaction, also after a timeout. Source order: relay usage (when it covers every successful API call) → Claude Code's totals → no API call: nothing → otherwise the cap (`usage unknown`). If the driver itself throws, the reservation stays (unknown spend is never under-counted).
+- `eval_runs.cost_source` (`relay` / `claude` / `cap` / `none`, migration 0009, backfilled `cap` for the 7 runs). Cost estimates (`measuredCosts`) leave cap bookings out: they had pushed the measured Haiku mean from about USD 0.006 to USD 0.31 per run.
+- **Re-booking the 7 timed-out runs: not possible.** Their relay logs predate the usage tap and hold only one line per API call (35 calls in total), no token counts. They stay booked at the USD 1.50 cap (USD 10.50). For scale: at the highest per-call cost seen in the 26 completed runs (USD 0.00135), 35 calls cost at most about USD 0.05. Re-booking needs the owner's figure (Anthropic console) or approval to book that estimate.
+
+**Timeouts: diagnosis**
+
+- The 7 runs (all Haiku, Stage A, browser_testing): 4 baseline runs with the incumbent webapp-testing skill (contact-form-submit ×1, nav-about-link ×1, product-search ×2), 3 candidate runs of chrome-devtools-mcp (all nav-about-link).
+- Last tool calls: not recoverable. With `--output-format json`, Claude Code writes nothing until it finishes, so stdout was empty. The relay timestamps show the pattern instead: 3–9 API calls, the last one 7 s (baseline runs) to 245 s in, then silence until the 300 s kill. The agent was blocked inside one tool call, with no model turn pending.
+- The hidden check passed in all 7, and the diffs show the fix had been made (in two runs the diff is empty because the fix restored the committed file). So the tasks were solved early, and the agent then waited on something that never returned: typically a foreground `npm run dev` / `next start`, a test command, or an MCP call. The harness set no per-command limit, so the model's own Bash timeout or the MCP client default applied; neither ended the call within the run. Which command it was can't be proven for these 7 runs.
+- **Cause: the tool setup (harness), not the tasks.** Nothing limited a single command inside the run.
+- **Fix:** `EVAL_COMMAND_TIMEOUT_SECONDS` (default 90) sets `BASH_DEFAULT_TIMEOUT_MS`, `BASH_MAX_TIMEOUT_MS` and `MCP_TOOL_TIMEOUT` in the agent container (names verified in the image's Claude Code 2.1.303 binary; `MCP_TOOL_TIMEOUT` is a hard per-call wall-clock limit). A hung command now returns an error to the agent after 90 s instead of eating the run. `--output-format stream-json --verbose` (stream-json needs `--verbose` in print mode, verified in the binary) writes the transcript as it happens; a timed-out run logs `killed during <tool>: <input>` and its last 5 tool calls go to `meta.json`.
+- **Limit: kept at 300 s.** The 26 runs that finished took 24–58 s (mean 39 s; eval_runs, 2026-10-20). 300 s is about 5× the slowest and leaves room for two 90 s command timeouts. Raising it would only make hung runs slower and dearer.
+- **Timed-out runs fail their task**, even when the check passes on what they left behind. Candidate and baseline runs both go through `runOne`, so the rule is the same on both sides (test). The 7 stored runs were all recorded as passes; they were corrected to failures (data fix). chrome-devtools-mcp's summary was updated accordingly: 12/15 vs the webapp-testing baseline 11/15. The lead (0.07) is under the 0.2 threshold, so the verdict stays `equal`.
+- `HARNESS_REVISION` 2 is part of the task-set hash, so baselines cached under the old harness (json output, no command limit, timeouts as passes) are never reused.
+
+**Root-level skills**
+
+- `parseTreeUrl` accepts a repo root (`https://github.com/<owner>/<repo>`). The fetcher requires a root `SKILL.md`, skips repo plumbing (`.git/`, `.github/`, `node_modules/`), binaries and files over 512 KB, and allows 4 MB in total (testdino's guides are about 2 MB of Markdown).
+- Live check (GitHub API only): testdino at `sha-178d1cb` fetches 89 files (2.06 MB) including the root `SKILL.md`.
+- Task sets declare `technologies`; scheduled evals only pick vendor-specific items whose technologies overlap. browser_testing declares `[playwright]` (the fixture's test runner). Without it, the new filter would have deferred testdino.
+- `auto-evals --dry-run`: testdino is first in the next batch (against webapp-testing, worst case USD 0.76 + USD 0.76 baselines).
+
+**Task sets docs, database, code_review** (5 tasks each, same fixture app and hidden-Playwright-check pattern as browser_testing; no paid runs)
+
+- `docs`: current Next.js 16 APIs, where up-to-date docs help: App Router metadata, async dynamic route params, `notFound()` with a 404, a route handler, and a redirect in the request-interception file. `technologies: []`.
+- `database`: SQLite through `node:sqlite` (no new packages), migrations in `db/migrations/` run in name order, a fresh database for every check: add a column by migration, filter by a parameter, an atomic stock/order transaction, fix an SQL injection, a case-insensitive unique constraint. `technologies: [sqlite]`. So the Postgres, Prisma, Neon and Redis skills are deferred until a matching task set exists.
+- `code_review`: a teammate's uncommitted change, to review and fix against its own documentation: XSS through `dangerouslySetInnerHTML`, an endpoint leaking environment secrets, discount rounding and range checks, off-by-one pagination, missing quantity validation. `technologies: []`.
+- `pnpm evals selftest` (free): docs 5/5, database 5/5, code_review 5/5. The first docs run failed `shop-redirect`: Next.js answers `/shop/` with its own trailing-slash 308 to `/shop` before the proxy runs, so the check now follows the chain (every hop 308, ending at `/products`).
+
 ## Dependencies
 
 One line each: why it was added.

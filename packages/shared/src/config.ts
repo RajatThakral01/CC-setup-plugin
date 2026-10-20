@@ -177,6 +177,8 @@ export const configSchema = z
     EVAL_ARTIFACT_DIR: z.string().min(1).default('.artifacts/evals'),
     /** Hard cap per run (`claude --max-budget-usd`); also the cost estimate before any run is measured. */
     EVAL_RUN_MAX_USD: usd.default(1.5),
+    /** Limit for any single Bash command or MCP tool call inside an eval run (M8.3). */
+    EVAL_COMMAND_TIMEOUT_SECONDS: z.coerce.number().int().min(10).max(600).default(90),
     EVAL_SCREEN_RUNS: z.coerce.number().int().min(1).max(10).default(3),
     /** Stage A success-rate lead over the baseline needed before a Stage B confirmation. */
     EVAL_CONFIRM_THRESHOLD: z.coerce.number().min(0).max(1).default(0.2),

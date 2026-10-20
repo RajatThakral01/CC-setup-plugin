@@ -119,6 +119,7 @@ interface Seed {
   evalSummary?: EvalSummary;
   stars?: number;
   velocity?: number;
+  technologies?: string[];
 }
 
 async function seed(s: Seed): Promise<void> {
@@ -134,6 +135,7 @@ async function seed(s: Seed): Promise<void> {
       kind: 'mcp_server',
       category,
       stacks: ['any'],
+      ...(s.technologies ? { technologies: s.technologies } : {}),
       provenance: s.provenance ?? 'official_vendor',
       install: { method: 'npx', package: s.id, version: '1.0.0', envVars: [] },
       classification: classification({ category }),
@@ -384,6 +386,7 @@ describe('scheduled evals (FR-P7)', () => {
   const taskSet = async () => ({
     category: 'browser_testing' as const,
     version: 'browser_testing-v1-test',
+    technologies: ['playwright'],
     tasks: Array.from({ length: 5 }, (_, i) => ({ id: `task-${i}` })) as never,
   });
   const evalDeps = (env: Record<string, string> = {}) => ({
@@ -436,6 +439,24 @@ describe('scheduled evals (FR-P7)', () => {
     expect(plan.batch[1]?.baselineUsd).toBe(0);
     expect(plan.estimateUsd).toBeCloseTo(2.4, 6);
     expect(plan.estimateUsd).toBeLessThanOrEqual(plan.budget.plannableUsd);
+  });
+
+  it('only judges a vendor-specific item on tasks that use its technology', async () => {
+    await measure();
+    await seed({
+      id: 'example-skill-alpha',
+      provenance: 'community',
+      technologies: ['playwright', 'cypress'],
+    });
+    await seed({ id: 'example-mcp-beta', provenance: 'community', technologies: ['example-db'] });
+    const plan = await planAutoEvals(evalDeps(), NOW);
+    expect(plan.batch.map((b) => b.id)).toEqual(['example-skill-alpha']);
+    expect(plan.deferred).toEqual([
+      {
+        id: 'example-mcp-beta',
+        reason: 'needs example-db; the browser_testing tasks use playwright',
+      },
+    ]);
   });
 
   it('never plans past the weekly cap or into the total reserve', async () => {

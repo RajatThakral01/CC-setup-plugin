@@ -1,0 +1,8 @@
+# Benchmark tasks for the docs category (M8.3): current Next.js 16 APIs, where up-to-date documentation helps.
+# The task-set version is "<category>-v<version>-<content hash>" (plus the harness revision), so any
+# edit invalidates cached baseline runs.
+category: docs
+version: 1
+# Products these tasks exercise. Scheduled evals only pick items that need none of their own,
+# or whose technologies are listed here (a MongoDB skill isn't judged on SQLite tasks).
+technologies: []

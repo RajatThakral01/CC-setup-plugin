@@ -2,9 +2,9 @@
 
 ## Current state
 
-- **Session range:** M8.3 round 2 (owner answers 2026-10-20: vetoes, policy-v2/v3, gate 3 coverage, gold tiers, snapshot, eval batch, block lifting).
-- **Current milestone:** 8.3 done. Snapshot `2026.10.20-1` published (32 provisional + 1 blocked). Next: owner decisions on eval timeouts and booking (see Open questions), then M10.
-- **Total Anthropic API spend to date (ledger):** USD 11.2771 (eval USD 10.7879, of which USD 10.50 is 7 timed-out runs booked at the USD 1.50 cap; classification USD 0.4892). Weekly cap USD 20 (USD 11.14 used this week), total cap USD 40.
+- **Session range:** M8.3 round 3 (owner request 2026-10-20: eval cost booking, timeout diagnosis, repo-root skills, three new task sets; recovered after a laptop restart mid-session).
+- **Current milestone:** 8.3 round 3 done. Next: owner answer on the 7 cap-booked runs (see Open questions), then the next scheduled eval batch (testdino first) and M10.
+- **Total Anthropic API spend to date (ledger):** USD 11.2771 (eval USD 10.7879, of which USD 10.50 is 7 timed-out runs still booked at the USD 1.50 cap: their relay logs have no token counts, so they couldn't be re-booked; classification USD 0.4892). Weekly cap USD 20 (USD 11.14 used this week), total cap USD 40. No API calls this round.
 - **Remote:** https://github.com/RajatThakral01/CC-setup-plugin — pushed after every milestone; CI green.
 
 ## Milestones
@@ -23,7 +23,7 @@
 | 8.1 | Fixes before acceptance     | Done                                                | M8.1   |
 | 9   | Eval harness                | Built; pilot done; full eval pending owner go-ahead | M9     |
 | 8.2 | Fixes after M8 acceptance   | Done; owner re-acceptance pending                   | M8.2   |
-| 8.3 | Autonomous curation         | Done; snapshot waits for the owner's report         | M8.3   |
+| 8.3 | Autonomous curation         | Done (rounds 1–3)                                   | M8.3   |
 | 10  | End-to-end acceptance       |                                                     |        |
 
 ## Milestone 0 — Repo and tooling (done)
@@ -302,7 +302,25 @@ Tests: 682 passing (+5 real-Docker run in CI). Details: DECISIONS "Milestone 8.3
 - **Eval batch:** chrome-devtools-mcp `equal` vs webapp-testing (15/15 each); playwright-mcp stopped at 3/3; testdino not evaluable (repo-root skill). Booked USD 10.64 against the USD 4.13 approved, because timed-out runs are booked at their cap and the ceiling was not enforced during the runs. Fixed: per-run batch ceiling.
 - Snapshot 2026.10.20-1 published.
 
+### M8.3 round 3 (owner request, 2026-10-20)
+
+Recovery: tasks 1–3 were mostly written but uncommitted; code_review's task metadata was invalid YAML; typecheck and Prettier failed; migration 0008 was unapplied; one empty eval network was left over (removed). The interrupted session wrote no ledger rows or eval runs.
+
+- **Eval cost booking:**
+  - The relay records the usage of every API response, including responses cut short.
+  - Each run reserves its cap before it starts. Afterwards the reservation is settled from the relay's usage, also after a timeout. Claude Code's totals are the fallback; the cap is booked only when the usage is unknown.
+  - `eval_runs.cost_source` records which source was used; cost estimates ignore cap bookings.
+  - The 7 old runs could not be re-booked (their relay logs predate the usage records).
+- **Timeouts:**
+  - All 7 runs had solved the task early. Each was then blocked in a single tool call until the 300 s kill.
+  - Cause: the harness had no per-command limit. Fixed with a 90 s limit on Bash and MCP calls, plus stream-json transcripts so a killed run shows its last tool calls.
+  - The limit stays at 300 s (completed runs: 24–58 s).
+  - Timed-out runs now fail their task on either side. The 7 stored runs were corrected; chrome-devtools-mcp is now 12/15 vs 11/15, still `equal`.
+- **Repo-root skills:** the harness fetches a skill from a repo root (live: testdino, 89 files at its pinned commit). Task sets declare their technologies. testdino is first in the next scheduled batch (`auto-evals --dry-run`).
+- **Task sets:** `docs`, `database`, `code_review`, 5 tasks each, with deterministic hidden checks. `pnpm evals selftest` (free, no API calls): docs 5/5 (`docs-v1-577c521e`), database 5/5 (`database-v1-3bb89887`), code_review 5/5 (`code_review-v1-af7dfd91`). Fixed on the way: the shop-redirect check now follows Next.js's own trailing-slash 308 before the proxy's redirect. No paid runs.
+
+Tests: 731 passing (+5 real-Docker; the 21 eval sandbox tests, real Docker included, also pass locally). New this round: relay usage (streamed, plain, cut short), reservation held mid-run and settled from relay usage, timeout booked from actual usage and counted as a failure on both sides, reservation released when no API call was made, cap bookings left out of cost estimates, stream-json parsing and last tool calls, repo-root skill fetch, technology filter in scheduled evals. Details: DECISIONS "Milestone 8.3, round 3".
+
 ## Open questions
 
-- Owner: eval timeouts. 7 of 33 runs hit 300 s and were booked at USD 1.50 each. Raise `EVAL_TIMEOUT_SECONDS`, or book unreadable runs differently (for example from relay-observed usage)?
-- Owner: repo-root skills (testdino and others) can't be fetched by the eval harness yet; build that (free code change) before the next batch?
+- Owner: the 7 runs that timed out on 2026-10-20 are still booked at USD 1.50 each (USD 10.50). The relay logs from that batch count 35 API calls but have no token counts. At the highest per-call cost seen in the 26 completed runs, that is at most about USD 0.05. Options: re-book at the figure from the Anthropic console, re-book at the USD 0.05 estimate, or leave them at the cap.

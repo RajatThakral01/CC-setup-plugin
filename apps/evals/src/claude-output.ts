@@ -60,15 +60,33 @@ const toUsage = (u: z.output<typeof modelUsageSchema>): TokenUsage => ({
   cacheReadTokens: u.cacheReadInputTokens,
 });
 
-/** The last JSON object on stdout (Claude Code prints exactly one in json mode). */
+const jsonLines = (stdout: string): unknown[] =>
+  stdout.split('\n').flatMap((line) => {
+    const t = line.trim();
+    if (!t.startsWith('{')) return [];
+    try {
+      return [JSON.parse(t) as unknown];
+    } catch {
+      return [];
+    }
+  });
+
+/**
+ * The run's result: the `result` line of `--output-format stream-json` (M8.3), or the single
+ * object of `--output-format json`. Null when the run was killed before Claude Code wrote it.
+ */
 export function parseClaudeOutput(stdout: string, fallbackModel: string): ClaudeRunResult | null {
-  const start = stdout.indexOf('{');
-  if (start === -1) return null;
-  let raw: unknown;
-  try {
-    raw = JSON.parse(stdout.slice(start));
-  } catch {
-    return null;
+  let raw: unknown = [...jsonLines(stdout)]
+    .reverse()
+    .find((o) => (o as { type?: unknown } | null)?.type === 'result');
+  if (raw === undefined) {
+    const start = stdout.indexOf('{');
+    if (start === -1) return null;
+    try {
+      raw = JSON.parse(stdout.slice(start));
+    } catch {
+      return null;
+    }
   }
   const parsed = claudeResultSchema.safeParse(raw);
   if (!parsed.success) return null;
@@ -104,4 +122,37 @@ export function parseClaudeOutput(stdout: string, fallbackModel: string): Claude
     outputTokens: sum((u) => u.outputTokens),
     spend,
   };
+}
+
+export interface ToolCall {
+  name: string;
+  /** The call's input, as JSON, cut to 300 characters. */
+  input: string;
+  /** No tool result came back before the transcript ended (the agent was killed during it). */
+  pending: boolean;
+}
+
+/**
+ * The last tool calls in a stream-json transcript, oldest first (M8.3: timeout diagnosis). A call
+ * without a matching tool result was still running when the transcript ended.
+ */
+export function lastToolCalls(stdout: string, n = 5): ToolCall[] {
+  const calls: Array<ToolCall & { id: string }> = [];
+  const answered = new Set<string>();
+  for (const o of jsonLines(stdout)) {
+    const msg = (o as { type?: string; message?: { content?: unknown } }) ?? {};
+    const content = Array.isArray(msg.message?.content) ? msg.message.content : [];
+    for (const block of content as Array<Record<string, unknown>>) {
+      if (msg.type === 'assistant' && block['type'] === 'tool_use')
+        calls.push({
+          id: String(block['id'] ?? ''),
+          name: String(block['name'] ?? '?'),
+          input: JSON.stringify(block['input'] ?? {}).slice(0, 300),
+          pending: true,
+        });
+      if (msg.type === 'user' && block['type'] === 'tool_result')
+        answered.add(String(block['tool_use_id'] ?? ''));
+    }
+  }
+  return calls.map(({ id, ...c }) => ({ ...c, pending: !answered.has(id) })).slice(-n);
 }

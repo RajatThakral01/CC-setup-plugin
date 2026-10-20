@@ -1,0 +1,4 @@
+id: search-injection
+category: database
+version: 1
+title: Fix SQL injection in product search

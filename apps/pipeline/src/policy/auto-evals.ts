@@ -169,6 +169,18 @@ export async function planAutoEvals(
       plan.noTasks.push({ category, items: items.length });
       continue;
     }
+    // A vendor-specific item is only judged on tasks that use its technology.
+    const fitting = items.filter(
+      (f) =>
+        (f.item.technologies ?? []).length === 0 ||
+        (f.item.technologies ?? []).some((t) => taskSet.technologies.includes(t)),
+    );
+    for (const f of items.filter((x) => !fitting.includes(x)))
+      plan.deferred.push({
+        id: f.item.id,
+        reason: `needs ${(f.item.technologies ?? []).join(', ')}; the ${category} tasks use ${taskSet.technologies.join(', ') || 'no specific technology'}`,
+      });
+    items.splice(0, items.length, ...fitting);
     const tasks = taskSet.tasks.length;
     const baselineCost = new Map<string, number>();
     let picked = 0;

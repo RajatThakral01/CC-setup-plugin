@@ -1,0 +1,1 @@
+A teammate's change is in the working tree (see `git status` and `git diff`). It adds `paginate` in `lib/paginate.ts`. Review it against its own documentation comment and fix every problem you find before it merges.

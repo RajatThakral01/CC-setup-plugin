@@ -57,6 +57,20 @@
       "when": 1792447131144,
       "tag": "0007_block_records_and_gold_tiers",
       "breakpoints": true
+    },
+    {
+      "idx": 8,
+      "version": "7",
+      "when": 1792485797670,
+      "tag": "0008_ledger_reservations",
+      "breakpoints": true
+    },
+    {
+      "idx": 9,
+      "version": "7",
+      "when": 1792501322101,
+      "tag": "0009_eval_cost_source",
+      "breakpoints": true
     }
   ]
 }

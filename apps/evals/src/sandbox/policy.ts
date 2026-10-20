@@ -37,6 +37,10 @@ export const AGENT_ENV_ALLOWLIST = new Set([
   'DISABLE_ERROR_REPORTING',
   'NEXT_TELEMETRY_DISABLED',
   'CI',
+  // Per-command limits inside the agent (M8.3; names verified in the Claude Code 2.1.303 binary).
+  'BASH_DEFAULT_TIMEOUT_MS',
+  'BASH_MAX_TIMEOUT_MS',
+  'MCP_TOOL_TIMEOUT',
 ]);
 export const RELAY_ENV_ALLOWLIST = new Set(['RELAY_UPSTREAM', 'ALLOWED_MODELS', 'ALLOW_HOSTS']);
 

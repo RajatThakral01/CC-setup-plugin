@@ -247,6 +247,12 @@ export const evalRuns = pgTable(
     logsRef: text('logs_ref'),
     /** `pilot`, `screen` (Stage A), `confirm` (Stage B) or `baseline` (plan M9 9.1). */
     stage: text('stage').notNull().default('screen'),
+    /**
+     * Where `cost_usd` came from (M8.3): `relay` (per-response usage seen by the relay), `claude`
+     * (Claude Code's own totals), `cap` (usage unknown, run cap booked) or `none` (no API call).
+     * Cap bookings are not measurements, so cost estimates leave them out.
+     */
+    costSource: text('cost_source').notNull().default('claude'),
     createdAt: createdAt(),
   },
   (t) => [
@@ -335,6 +341,11 @@ export const budgetLedger = pgTable(
     cacheReadTokens: integer('cache_read_tokens').notNull().default(0),
     costUsd: numeric('cost_usd', { precision: 12, scale: 6, mode: 'number' }).notNull(),
     ref: text('ref'),
+    /**
+     * A pre-run hold at the run's cap (M8.3): counts against the caps until the run is settled,
+     * when it is replaced by the actual usage. One left behind (crash) stays counted.
+     */
+    reservation: boolean('reservation').notNull().default(false),
     createdAt: createdAt(),
   },
   (t) => [index('budget_ledger_week_purpose_idx').on(t.weekStart, t.purpose)],

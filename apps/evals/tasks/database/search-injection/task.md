@@ -1,0 +1,1 @@
+Security report: `GET /api/search?q=...` is vulnerable to SQL injection. Fix it so that search still works (case-insensitive substring match on the product name, returning `{"products": [names...]}`), but no input can change the query.

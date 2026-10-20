@@ -1,0 +1,1 @@
+The product detail pages (for example `/products/oak-chair`) are broken and `npm run build` fails. Fix the product detail page so that `/products/<slug>` shows the product's name as the page heading (`<h1>`), for every product in `lib/catalog.ts`.

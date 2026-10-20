@@ -9,12 +9,19 @@ import { EvalError } from './errors.js';
 
 /** Task folders live in `apps/evals/tasks/<category>/<task-id>/` (plan M9 9.2). */
 export const DEFAULT_TASKS_ROOT = fileURLToPath(new URL('../tasks', import.meta.url));
+/**
+ * Bumped when the harness changes run behaviour, so cached baselines from the old harness are never
+ * compared with new runs. 2 (M8.3): stream-json transcripts and a per-command time limit.
+ */
+export const HARNESS_REVISION = 2;
 /** Hidden files shared by every check in a category (copied with the task's own `check/`). */
 const SHARED_CHECK_DIR = '_check';
 
 const taskSetFileSchema = z.object({
   category: categorySchema,
   version: z.number().int().positive(),
+  /** Products the tasks exercise (lowercase, as in item technologies); empty = vendor-neutral. */
+  technologies: z.array(z.string()).default([]),
 });
 const metaSchema = z.object({
   id: z.string().regex(/^[a-z0-9][a-z0-9-]*$/),
@@ -36,6 +43,7 @@ export interface EvalTask {
 }
 
 export interface TaskSet {
+  technologies: string[];
   category: Category;
   /** `<category>-v<n>-<hash>`: changes whenever any task file changes (FR-E5). */
   version: string;
@@ -65,6 +73,8 @@ export async function loadTaskSet(category: Category, root = DEFAULT_TASKS_ROOT)
     throw new EvalError(`taskset.yaml category ${set.category} doesn't match folder ${category}`);
 
   const hash = createHash('sha256');
+  // A harness change that affects how runs behave invalidates cached baselines too (FR-E5).
+  hash.update(`harness:${HARNESS_REVISION}\0`);
   for (const file of await filesUnder(dir)) {
     hash.update(posix(relative(dir, file)));
     hash.update('\0');
@@ -102,6 +112,7 @@ export async function loadTaskSet(category: Category, root = DEFAULT_TASKS_ROOT)
   if (tasks.length === 0) throw new EvalError(`task set ${category} has no tasks`);
   return {
     category,
+    technologies: set.technologies,
     version: `${category}-v${set.version}-${hash.digest('hex').slice(0, 8)}`,
     tasks,
   };

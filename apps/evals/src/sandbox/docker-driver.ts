@@ -165,6 +165,11 @@ export function createDockerDriver(
             DISABLE_TELEMETRY: '1',
             DISABLE_ERROR_REPORTING: '1',
             NEXT_TELEMETRY_DISABLED: '1',
+            // One hung command (a foreground server, a long test run) can't eat the run: Bash
+            // and MCP tool calls stop at the command limit and the agent gets the error back.
+            BASH_DEFAULT_TIMEOUT_MS: String(spec.limits.commandTimeoutSeconds * 1000),
+            BASH_MAX_TIMEOUT_MS: String(spec.limits.commandTimeoutSeconds * 1000),
+            MCP_TOOL_TIMEOUT: String(spec.limits.commandTimeoutSeconds * 1000),
           },
           command: ['sleep', 'infinity'],
           limits: options.limits,

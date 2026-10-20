@@ -1,0 +1,4 @@
+id: category-migration
+category: database
+version: 1
+title: Add product categories with a migration

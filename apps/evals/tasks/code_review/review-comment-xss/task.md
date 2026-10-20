@@ -1,0 +1,1 @@
+A teammate's change is in the working tree (see `git status` and `git diff`). It adds customer reviews to the About page. Review it the way a careful code reviewer would and fix every problem you find before it merges. Keep the feature: all three reviews must still be shown on the About page.
