@@ -183,6 +183,7 @@ describe('publishSnapshot', () => {
           securityFindings: [],
           evalSummary: null,
           confidence: 'high' as const,
+          scannerVersion: null,
           reviewer: null,
           reviewedAt: null,
           updatedAt: now,
@@ -193,6 +194,8 @@ describe('publishSnapshot', () => {
       now,
     );
     const byId = Object.fromEntries(build.snapshot.items.map((i) => [i.id, i]));
+    // No measurement passed: the snapshot says so explicitly (M10 setup trade-off).
+    expect(build.snapshot.setupEval).toBeNull();
     expect(byId['example-skill']).toMatchObject({
       technologies: ['cloudflare'],
       summary: 'Short description.',
@@ -290,6 +293,26 @@ describe('stores', () => {
       entry('example-a'),
     ]);
     expect(snapshot.blockedVersions.map((b) => b.id)).toEqual(['example-a', 'example-b']);
+  });
+  it('carries the latest setup measurement for the /setup trade-off (M10)', () => {
+    const arm = {
+      runs: 4,
+      successRate: 1,
+      meanTokens: 1200,
+      meanCostUsd: 0.01,
+      meanWallSeconds: 40,
+    };
+    const setupEval = {
+      measuredAt: '2026-10-19T00:00:00.000Z',
+      model: 'claude-haiku-5-5',
+      catalogVersion: '2026.10.18-1',
+      tasks: 2,
+      setup: arm,
+      default: { ...arm, successRate: 0.5 },
+      categories: [],
+    };
+    const { snapshot } = buildSnapshot([], '2026.10.19-1', now, [], setupEval);
+    expect(snapshot.setupEval).toEqual(setupEval);
   });
   it('serializes deterministically', () => {
     const { snapshot } = buildSnapshot([], '2026.10.19-1', now);

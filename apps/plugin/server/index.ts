@@ -39,7 +39,7 @@ import { blockedWarnings, checkUpdates } from './updates.js';
 import { defaultPackageResolver, verifySetup } from './verify.js';
 
 export const SERVER_NAME = 'setup-agent';
-export const SERVER_VERSION = '0.2.0';
+export const SERVER_VERSION = '0.3.0';
 
 type ToolResult = { content: Array<{ type: 'text'; text: string }>; isError?: boolean };
 

@@ -3,6 +3,7 @@ import type {
   ProjectProfile,
   RecommendSetupOutput,
   SetupAnswers,
+  SetupEval,
   Snapshot,
   SnapshotItem,
 } from '@cc-setup-agent/shared';
@@ -447,6 +448,23 @@ function tradeoff(item: SnapshotItem, now: Date): string {
  * that clear the fit bar, one per needed category, with excluded items and reasons, and a gap
  * entry for needed categories where nothing fits. Same input and snapshot give identical output.
  */
+const pct = (x: number) => `${Math.round(x * 100)}%`;
+const delta = (setup: number, base: number) => {
+  const d = base > 0 ? Math.round(((setup - base) / base) * 100) : 0;
+  return `${d >= 0 ? '+' : ''}${d}%`;
+};
+
+/**
+ * The setup's trade-off in one sentence (M10): measured benefit next to its token and cost overhead
+ * when the catalog carries a measurement, else the always-loaded context only. Deterministic.
+ */
+export function setupTradeoffSummary(m: SetupEval | null, alwaysLoadedTokens: number): string {
+  const context = `This setup always loads about ${alwaysLoadedTokens.toLocaleString('en-US')} tokens of tool definitions and descriptions per request (more when a tool is used).`;
+  if (!m)
+    return `The overhead of a recommended setup hasn't been measured for this catalog yet. ${context}`;
+  return `Measured ${m.measuredAt.slice(0, 10)} on our benchmark app (${m.tasks} tasks, ${m.model}): a recommended setup solved ${pct(m.setup.successRate)} of tasks vs ${pct(m.default.successRate)} without one, using ${delta(m.setup.meanTokens, m.default.meanTokens)} tokens and ${delta(m.setup.meanCostUsd, m.default.meanCostUsd)} cost per task. ${context}`;
+}
+
 export function recommendSetup(
   snapshot: Snapshot,
   profile: ProjectProfile,
@@ -552,6 +570,10 @@ export function recommendSetup(
     gaps,
     hooks: hookProposals(profile),
     model: modelRecommendation(answers),
+    setupTradeoff: {
+      summary: setupTradeoffSummary(snapshot.setupEval, totalTokens),
+      measured: snapshot.setupEval,
+    },
     contextOverhead: {
       totalTokens,
       unknownItems: items.filter((i) => i.contextOverheadTokens === null).map((i) => i.name),

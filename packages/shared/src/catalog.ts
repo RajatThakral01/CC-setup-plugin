@@ -138,12 +138,41 @@ export type GateResult = z.infer<typeof gateResultSchema>;
 export const gateResultsSchema = z.partialRecord(gateIdSchema, gateResultSchema);
 export type GateResults = z.infer<typeof gateResultsSchema>;
 
+/** Verdicts of the independent review of a gate 3 rule match (M10). */
+export const REVIEW_VERDICTS = [
+  'instructs',
+  'quotes',
+  'negates',
+  'discusses',
+  'unclear',
+  'not_reviewed',
+] as const;
+export type ReviewVerdict = (typeof REVIEW_VERDICTS)[number];
+/** Verdicts that clear a match: the text only quotes, negates or discusses the phrase. */
+export const CLEARING_VERDICTS: ReadonlySet<ReviewVerdict> = new Set([
+  'quotes',
+  'negates',
+  'discusses',
+]);
+
 export const securityFindingSchema = z.object({
   severity: z.enum(['info', 'low', 'medium', 'high', 'critical']),
   /** Gate 3 rule that produced it (stored from M8.3 on; older findings have none). */
   rule: z.string().optional(),
   description: z.string(),
   evidence: z.string().optional(),
+  /**
+   * Independent review of a rule match (M10 safeguard a): a rule match is only a trigger.
+   * `instructs` confirms it; `quotes`, `negates` and `discusses` clear it; `unclear` and
+   * `not_reviewed` (no model or budget) leave it suspected.
+   */
+  review: z
+    .object({
+      verdict: z.enum(REVIEW_VERDICTS),
+      reason: z.string(),
+      model: z.string().nullable(),
+    })
+    .optional(),
 });
 export type SecurityFinding = z.infer<typeof securityFindingSchema>;
 

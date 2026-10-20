@@ -44,6 +44,8 @@ export function buildSnapshot(
   now: Date,
   /** Versions that stay blocked after a lifted block (PRD FR-P10). */
   blockedVersions: Snapshot['blockedVersions'] = [],
+  /** Latest recommended-vs-default measurement (M10), for the /setup trade-off. */
+  setupEval: Snapshot['setupEval'] = null,
 ): BuildResult {
   const skipped: BuildResult['skipped'] = [];
   const items: SnapshotItem[] = [];
@@ -104,6 +106,7 @@ export function buildSnapshot(
     generatedAt: now.toISOString(),
     items,
     blockedVersions: [...blockedVersions].sort((a, b) => a.id.localeCompare(b.id)),
+    setupEval,
   });
   return { snapshot, skipped };
 }

@@ -45,6 +45,8 @@ You guide the user through choosing and writing a Claude Code setup using the `s
 
    Then, for each entry in `gaps`, one line: "<categoryLabel>: no suitable item in the catalog yet" plus its `detail`. Recommend nothing for those categories, and don't suggest items from outside the catalog. Then list the excluded items with their reasons, the total context overhead (always-loaded tokens; warn if `contextOverhead.warning`; name `unknownItems` as "not measured"), and the model suggestion with its cost note (it may suggest Opus for complex work when the budget allows; always repeat the cost note). Then list the proposed `hooks` (format, lint, typecheck), each with its description and reason.
 
+   Then, before asking for approval, show the setup's **trade-off** next to its benefits: the items' reasons above are the benefits; `setupTradeoff.summary` is what the setup costs (measured success rate with and without a setup, extra tokens and cost per task, and the always-loaded context). Quote it as given and don't round it further. If it says the overhead hasn't been measured yet, say so plainly; never estimate a percentage yourself.
+
 5. **Approval.** Ask the user to approve or remove items and hooks, one by one (e.g. "keep 1, 2, 4; drop 3; hooks: format only"). `explain_item` gives more detail on any item when asked.
 6. **Write.**
    1. Call `backup_setup` and tell the user the backup id.

@@ -21,7 +21,7 @@ No step costs Anthropic API money beyond your own Claude Code session.
 
 ## B. Update the plugin
 
-The installed plugin is a cached copy from 2026-10-19, saved under version `0.1.0`, and it predates the M8.2 fixes. The plugin is now `0.2.0`. Claude Code caches plugins by version, so this update is required.
+The installed plugin is a cached copy from 2026-10-19, saved under version `0.1.0`, and it predates the M8.2 fixes. The plugin is now `0.3.0` (0.3.0 adds the setup trade-off to the plan). Claude Code caches plugins by version, so this update is required.
 
 3. Rebuild the bundle: `cd <repo> && pnpm install && pnpm plugin:build`. Expect `dist/server.js` of about 836 KB. (It is already built; rebuilding is harmless.)
 4. `echo $CC_SETUP_AGENT_CATALOG_URL` prints `file://<repo>/.snapshots/`. If it is empty, add `export CC_SETUP_AGENT_CATALOG_URL="file://<repo>/.snapshots/"` to your shell profile and open a new terminal.
@@ -31,7 +31,7 @@ The installed plugin is a cached copy from 2026-10-19, saved under version `0.1.
    claude plugin update setup-agent@cc-setup-agent --scope user
    ls ~/.claude/plugins/cache/cc-setup-agent/setup-agent/
    ```
-   The `ls` must list `0.2.0`. If it only shows `0.1.0`, reinstall:
+   The `ls` must list `0.3.0`. If it only shows an older version, reinstall:
    ```sh
    claude plugin uninstall setup-agent@cc-setup-agent --scope user
    claude plugin install setup-agent@cc-setup-agent --scope user
@@ -69,6 +69,7 @@ The installed plugin is a cached copy from 2026-10-19, saved under version `0.1.
       - the context overhead counts skills and plugins too, and names anything it couldn't measure;
       - an item needing an API key (for example context7, `CONTEXT7_API_KEY`) lists the variable **by name only** and never asks for its value.
     - **Model:** the model suggestion has a cost note, and suggests Sonnet for this goal.
+    - **Trade-off (new in 0.3.0):** before asking for approval, the plan shows the setup's trade-off next to its benefits, quoted from `setupTradeoff.summary`. Snapshot `2026.10.20-2` carries no measurement yet, so it must say plainly that the overhead "hasn't been measured for this catalog yet" and give the always-loaded tokens. It must **not** make up a percentage. (The measured line, about +20% tokens per task, arrives with the next snapshot.)
     - **Hooks:** for a fresh app it proposes `lint-on-edit` and `typecheck-on-stop` (`format-on-edit` only if Prettier is present). Keep both.
     - **Per item (PRD 17.2 #2):** keep or drop items one by one. Drop at least one; keep context7 if offered (it is used in step 13).
     - **Backup:** it calls `backup_setup`. Note the backup id.
@@ -126,7 +127,7 @@ The catalog's only blocked item is `davila7-claude-code-templates` (blocked for 
 
 Tell me pass or fail for each of these, and paste any error text:
 
-- 5 (`0.2.0` in the cache);
+- 5 (`0.3.0` in the cache);
 - 10 (each bullet, especially the plan contents, recommendation quality, the per-item choices and the diffs/permission prompts);
 - 11;
 - 12 (each hook check);

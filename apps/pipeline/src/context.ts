@@ -13,6 +13,8 @@ import { createDb, createLedgerGuard, type Db } from '@cc-setup-agent/db';
 import { createGithubClient, type GithubClient } from './sources/github.js';
 import { createNpmClient, type NpmClient } from './sources/npm.js';
 import { createDockerCli, type DockerCli } from './gates/sandbox/docker.js';
+import type { GateDeps } from './gates/run.js';
+import { readVendors } from './catalog-config.js';
 
 /** Everything a pipeline command needs, built once from config. */
 export interface PipelineContext {
@@ -47,5 +49,23 @@ export function createContext(): PipelineContext {
       return llm;
     },
     close: handle.close,
+  };
+}
+
+/**
+ * Gate dependencies from the context. The injection review needs the API (M10 safeguard a); without
+ * a key every rule match stays suspected (blocked, no org lock), never confirmed.
+ */
+export async function gateDeps(ctx: PipelineContext): Promise<GateDeps> {
+  return {
+    db: ctx.db,
+    http: ctx.http,
+    github: ctx.github,
+    npm: ctx.npm,
+    docker: ctx.docker,
+    config: ctx.config,
+    logger: ctx.logger,
+    vendors: await readVendors(),
+    ...(ctx.config.ANTHROPIC_API_KEY ? { llm: ctx.llm() } : {}),
   };
 }

@@ -23,6 +23,7 @@ import {
   type RuleOpinion,
   type Status,
 } from '@cc-setup-agent/shared';
+import { readVendors } from '../catalog-config.js';
 
 export type ItemRow = typeof catalogItems.$inferSelect;
 type ScorecardRow = typeof scorecards.$inferSelect;
@@ -73,11 +74,23 @@ export function ruleInputsFrom(
 export const orgOf = (sourceUrl: string) =>
   /^https:\/\/github\.com\/([^/]+)\//i.exec(sourceUrl)?.[1]?.toLowerCase() ?? null;
 
+/** An org lock that was not applied because the org is a listed vendor (M10 safeguard b). */
+export interface OrgLockFlag {
+  org: string;
+  itemId: string;
+  cause: string;
+}
+
 /**
  * Orgs locked out of auto-approval (PRD FR-P10): an item of theirs was blocked for injection or
  * exfiltration. Blocks from before M8.3 carry no record; gate 3's confirmed-injection reason marks them.
+ * Orgs in vendors.yaml are never locked automatically (M10 safeguard b): one false positive would
+ * otherwise lock out a whole vendor. They come back as flags for the owner's weekly digest.
  */
-export async function orgLocks(db: Db): Promise<Map<string, string>> {
+export async function orgLocks(
+  db: Db,
+  vendorOrgs: ReadonlySet<string>,
+): Promise<{ locks: Map<string, string>; vendorFlags: OrgLockFlag[] }> {
   const blocked = await db
     .select({
       id: catalogItems.id,
@@ -97,13 +110,15 @@ export async function orgLocks(db: Db): Promise<Map<string, string>> {
     );
   const legacyIds = new Set(legacy.map((l) => l.itemId));
   const locks = new Map<string, string>();
+  const vendorFlags: OrgLockFlag[] = [];
   for (const b of blocked) {
     const org = orgOf(b.sourceUrl);
     const cause = b.blockRecord?.cause ?? (legacyIds.has(b.id) ? 'injection' : null);
-    if (org && cause && ORG_LOCK_CAUSES.has(cause))
-      locks.set(org, `author org ${org} is locked: ${b.id} was blocked for ${cause}`);
+    if (!org || !cause || !ORG_LOCK_CAUSES.has(cause)) continue;
+    if (vendorOrgs.has(org)) vendorFlags.push({ org, itemId: b.id, cause });
+    else locks.set(org, `author org ${org} is locked: ${b.id} was blocked for ${cause}`);
   }
-  return locks;
+  return { locks, vendorFlags };
 }
 
 /** The category's incumbent (FR-E4), excluding the item itself: recommended first, then provisional. */
@@ -128,6 +143,8 @@ export async function loadPolicyFacts(
   rulesConfig: CategoryRules,
   now: Date,
   itemIds?: string[],
+  /** Vendor GitHub orgs (lowercase); read from catalog/vendors.yaml when not given. */
+  vendorOrgs?: ReadonlySet<string>,
 ): Promise<ItemFacts[]> {
   const everyone = await db
     .select({ id: catalogItems.id, status: catalogItems.status, category: catalogItems.category })
@@ -175,7 +192,7 @@ export async function loadPolicyFacts(
       .orderBy(desc(statusEvents.id)),
   ]);
   const pinned = new Map(pins.map((p) => [p.itemId, p.version]));
-  const lockedOrgs = await orgLocks(db);
+  const { locks: lockedOrgs } = await orgLocks(db, vendorOrgs ?? (await readVendors()).githubOrgs);
   const snapshot = new Map(snaps.map((s) => [s.itemId, s]));
   return items.map((item) => {
     const version = pinned.get(item.id) ?? null;

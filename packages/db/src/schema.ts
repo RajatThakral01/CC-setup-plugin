@@ -32,12 +32,14 @@ import {
   type ItemComponents,
   type GateResults,
   type EvalSummary,
+  type BlockCause,
   type BlockRecord,
   type Install,
   type Criterion as PolicyCriterion,
   type PolicyVeto,
   type SecondOpinion,
   type SecurityFinding,
+  type SetupEval,
   type SecurityOverride,
 } from '@cc-setup-agent/shared';
 
@@ -220,6 +222,8 @@ export const scorecards = pgTable(
     securityFindings: jsonb('security_findings').$type<SecurityFinding[]>().notNull().default([]),
     evalSummary: jsonb('eval_summary').$type<EvalSummary>(),
     confidence: confidenceEnum('confidence').notNull().default('low'),
+    /** Gate 3 scanner version that produced the findings (M10 safeguard c); null before M10. */
+    scannerVersion: text('scanner_version'),
     reviewer: text('reviewer'),
     reviewedAt: timestamp('reviewed_at', { withTimezone: true }),
     updatedAt: timestamp('updated_at', { withTimezone: true }).notNull().defaultNow(),
@@ -399,3 +403,50 @@ export const claudeCodeChanges = pgTable(
   },
   (t) => [uniqueIndex('claude_code_changes_source_external_id_uq').on(t.source, t.externalId)],
 );
+
+/**
+ * Status changes held for the owner instead of applied (M10 safeguards c and d): new blocks or
+ * demotions from a scanner, rule or policy version not yet accepted, or more demotions of approved
+ * items in one policy run than the policy allows. The owner applies or dismisses each one.
+ */
+export const heldChanges = pgTable(
+  'held_changes',
+  {
+    id: bigserial('id', { mode: 'number' }).primaryKey(),
+    itemId: text('item_id')
+      .notNull()
+      .references(() => catalogItems.id),
+    fromStatus: statusEnum('from_status').notNull(),
+    toStatus: statusEnum('to_status').notNull(),
+    /** The actor that would have made the change (`system` for gates, `policy:<v>`). */
+    actor: text('actor').notNull(),
+    reason: text('reason').notNull(),
+    block: jsonb('block').$type<{ cause: BlockCause; findings: string[] }>(),
+    source: text('source').notNull(),
+    /** `scanner_change`, `policy_change`, `rules_change` or `mass_demotion`. */
+    trigger: text('trigger').notNull(),
+    versions: jsonb('versions').$type<Record<string, string>>().notNull().default({}),
+    createdAt: createdAt(),
+    resolvedAt: timestamp('resolved_at', { withTimezone: true }),
+    /** `applied` or `dismissed`. */
+    resolution: text('resolution'),
+    resolvedBy: text('resolved_by'),
+  },
+  (t) => [index('held_changes_open_idx').on(t.resolvedAt, t.itemId)],
+);
+
+/** The version of each decision-making component the owner (or a clean full dry run) accepted. */
+export const acceptedVersions = pgTable('accepted_versions', {
+  /** `scanner`, `policy` or `category_rules`. */
+  component: text('component').primaryKey(),
+  version: text('version').notNull(),
+  acceptedBy: text('accepted_by').notNull(),
+  acceptedAt: timestamp('accepted_at', { withTimezone: true }).notNull().defaultNow(),
+});
+
+/** Recommended-vs-default setup measurements (M10); the latest goes into the next snapshot. */
+export const setupEvals = pgTable('setup_evals', {
+  id: bigserial('id', { mode: 'number' }).primaryKey(),
+  summary: jsonb('summary').$type<SetupEval>().notNull(),
+  createdAt: createdAt(),
+});

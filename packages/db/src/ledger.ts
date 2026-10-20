@@ -182,11 +182,22 @@ export async function settleReservation(
 /**
  * Re-books one ledger row at a corrected amount (M10, owner decision only): the row keeps counting
  * against the caps at its new amount, and `budget_ledger_corrections` keeps the old amount and ref,
- * the actor and the reason. Reservations can't be corrected (they are settled by the runner).
+ * the actor and the reason. Reservations are refused unless explicitly released (an interrupted run).
  */
 export async function correctSpend(
   db: Db,
-  correction: { ledgerId: number; costUsd: number; ref: string; actor: Actor; reason: string },
+  correction: {
+    ledgerId: number;
+    costUsd: number;
+    ref: string;
+    actor: Actor;
+    reason: string;
+    /**
+     * Book a reservation left behind by an interrupted run at this amount (owner decision). Without
+     * it reservations are refused: the runner settles them.
+     */
+    releaseReservation?: boolean;
+  },
 ): Promise<void> {
   actorSchema.parse(correction.actor);
   if (!(correction.costUsd >= 0)) throw new Error('corrected cost must be a non-negative number');
@@ -198,7 +209,8 @@ export async function correctSpend(
       .where(eq(budgetLedger.id, correction.ledgerId))
       .for('update');
     if (!row) throw new Error(`ledger row ${correction.ledgerId} not found`);
-    if (row.reservation) throw new Error(`ledger row ${correction.ledgerId} is a reservation`);
+    if (row.reservation && !correction.releaseReservation)
+      throw new Error(`ledger row ${correction.ledgerId} is a reservation`);
     await tx.insert(budgetLedgerCorrections).values({
       ledgerId: row.id,
       oldCostUsd: row.costUsd,
@@ -210,7 +222,7 @@ export async function correctSpend(
     });
     await tx
       .update(budgetLedger)
-      .set({ costUsd: correction.costUsd, ref: correction.ref })
+      .set({ costUsd: correction.costUsd, ref: correction.ref, reservation: false })
       .where(eq(budgetLedger.id, row.id));
   });
 }

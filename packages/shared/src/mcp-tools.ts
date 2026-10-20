@@ -6,7 +6,7 @@
 import { z } from 'zod';
 import { envVarNameSchema, itemIdSchema } from './catalog.js';
 import { categorySchema, confidenceSchema } from './enums.js';
-import { snapshotItemSchema, snapshotStatusSchema } from './snapshot.js';
+import { setupEvalSchema, snapshotItemSchema, snapshotStatusSchema } from './snapshot.js';
 
 const catalogVersion = z.string().min(1);
 const projectPath = z.string().min(1);
@@ -143,6 +143,14 @@ export const recommendSetupOutputSchema = z.object({
     model: z.string(),
     effort: z.enum(['low', 'medium', 'high', 'xhigh', 'max']),
     costNote: z.string(),
+  }),
+  /**
+   * What the setup costs next to what it brings (M10): the latest measured comparison of a
+   * recommended setup against no setup, as one sentence for the user, plus the numbers.
+   */
+  setupTradeoff: z.object({
+    summary: z.string(),
+    measured: setupEvalSchema.nullable(),
   }),
   contextOverhead: z.object({
     /** Always-loaded tokens: MCP tool definitions plus skill, command and agent descriptions. */

@@ -5,7 +5,15 @@ import { fileURLToPath } from 'node:url';
 import { resolve } from 'node:path';
 import { parseArgs } from 'node:util';
 import { ConfigError } from '@cc-setup-agent/core';
-import { liftVeto, spendSummary, vetoItem } from '@cc-setup-agent/db';
+import {
+  acceptVersion,
+  liftVeto,
+  openHeldChanges,
+  resolveHeldChange,
+  spendSummary,
+  transitionStatus,
+  vetoItem,
+} from '@cc-setup-agent/db';
 import { isoWeekStart } from '@cc-setup-agent/shared';
 import { readCategoryRules, readPolicy, readVendors } from './catalog-config.js';
 import {
@@ -19,8 +27,9 @@ import { loadPolicyFacts } from './policy/facts.js';
 import { classifyPending } from './classify/run.js';
 import { runAutoEvals } from './policy/auto-evals.js';
 import { writeDigest } from './policy/jobs.js';
-import { formatPolicyReport, runPolicy } from './policy/run.js';
-import { createContext, type PipelineContext } from './context.js';
+import { contentVersion, formatHeldChanges, formatPolicyReport, runPolicy } from './policy/run.js';
+import { SCANNER_VERSION } from './gates/review.js';
+import { createContext, gateDeps, type PipelineContext } from './context.js';
 import { formatDiscoveryReport, runDiscoveryJob } from './discovery/job.js';
 import { SOURCE_NAMES, type SourceName } from './discovery/run.js';
 import { runIntake } from './intake/run.js';
@@ -53,6 +62,13 @@ Commands:
   digest [--week YYYY-MM-DD]           Write the weekly policy digest to REPORTS_DIR
   veto | unveto --item <id>... --reason "<why>" --by <owner name>
                                        Owner veto (same audited path as the triage button)
+  unblock --item <id>... --reason "<why>" --by <owner name>
+                                       Owner unblock (blocked → candidate, audited as human:<name>)
+  held [--apply <id>... | --apply-all | --dismiss <id>...] [--by <owner name>]
+                                       Status changes held for the owner (new scanner/policy/rules
+                                       version, or a mass demotion): list, apply or dismiss
+  accept-version scanner|policy|category_rules --by <owner name>
+                                       Accept the current version, so its changes apply on their own
   auto-evals --dry-run | --confirm-spend [--max-usd <n>]
                                        Plan (and run) this week's scheduled eval batch
   gates [--item <id>]... | --pending | --recheck | --all  [--limit <n>]
@@ -173,6 +189,81 @@ async function main(argv: string[]): Promise<number> {
             out(`${id}: veto lifted`);
           }
         }
+        return 0;
+      });
+    }
+    case 'unblock': {
+      const { values } = parseArgs({
+        args: rest,
+        options: {
+          item: { type: 'string', multiple: true },
+          reason: { type: 'string' },
+          by: { type: 'string' },
+        },
+      });
+      if (!values.item?.length || !values.reason || !values.by)
+        throw new Error('unblock needs --item <id>... --reason "<why>" --by <owner name>');
+      return withContext(async (ctx) => {
+        for (const id of values.item!) {
+          await transitionStatus(ctx.db, id, 'candidate', `human:${values.by}`, values.reason!);
+          out(`${id}: unblocked (now candidate)`);
+        }
+        return 0;
+      });
+    }
+    case 'held': {
+      const { values } = parseArgs({
+        args: rest,
+        options: {
+          apply: { type: 'string', multiple: true },
+          'apply-all': { type: 'boolean' },
+          dismiss: { type: 'string', multiple: true },
+          by: { type: 'string' },
+        },
+      });
+      return withContext(async (ctx) => {
+        const open = await openHeldChanges(ctx.db);
+        const acting = values.apply?.length || values['apply-all'] || values.dismiss?.length;
+        if (!acting) {
+          out(open.length === 0 ? 'No held changes.' : formatHeldChanges(open));
+          return 0;
+        }
+        if (!values.by) throw new Error('held --apply/--dismiss needs --by <owner name>');
+        const owner = `human:${values.by}` as const;
+        const ids = (xs?: string[]) => (xs ?? []).map(Number);
+        const toApply = values['apply-all'] ? open.map((h) => h.id) : ids(values.apply);
+        for (const id of toApply) {
+          const h = await resolveHeldChange(ctx.db, id, 'apply', owner);
+          out(`#${id} ${h.itemId}: applied (${h.fromStatus} → ${h.toStatus})`);
+        }
+        for (const id of ids(values.dismiss)) {
+          const h = await resolveHeldChange(ctx.db, id, 'dismiss', owner);
+          out(`#${id} ${h.itemId}: dismissed`);
+        }
+        return 0;
+      });
+    }
+    case 'accept-version': {
+      const { values, positionals } = parseArgs({
+        args: rest,
+        allowPositionals: true,
+        options: { by: { type: 'string' } },
+      });
+      const component = positionals[0];
+      if (
+        (component !== 'scanner' && component !== 'policy' && component !== 'category_rules') ||
+        !values.by
+      )
+        throw new Error('accept-version needs scanner|policy|category_rules --by <owner name>');
+      return withContext(async (ctx) => {
+        const version =
+          component === 'scanner'
+            ? SCANNER_VERSION
+            : component === 'policy'
+              ? contentVersion((await readPolicy()).version, await readPolicy())
+              : contentVersion((await readCategoryRules()).version, await readCategoryRules());
+        await acceptVersion(ctx.db, component, version, `human:${values.by}`);
+        out(`${component} ${version} accepted by human:${values.by}`);
         return 0;
       });
     }
@@ -304,7 +395,7 @@ async function main(argv: string[]): Promise<number> {
         : { mode: values.all ? 'all' : values.recheck ? 'recheck' : 'pending' };
       return withContext(async (ctx) => {
         const reports = await runGates(
-          { ...ctx, vendors: await readVendors() },
+          await gateDeps(ctx),
           selection,
           values.limit ? { limit: Number(values.limit) } : {},
         );

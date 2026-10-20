@@ -93,6 +93,36 @@ export const snapshotItemSchema = z
   });
 export type SnapshotItem = z.infer<typeof snapshotItemSchema>;
 
+const setupArmSchema = z.object({
+  runs: z.number().int().nonnegative(),
+  successRate: z.number().min(0).max(1),
+  meanTokens: z.number().nonnegative(),
+  meanCostUsd: z.number().nonnegative(),
+  meanWallSeconds: z.number().nonnegative(),
+});
+
+/**
+ * The latest measured comparison of a recommended setup against the default setup on the benchmark
+ * tasks (M10, PRD 17.2 #11), so `/setup` can show the trade-off: benefit next to token and cost
+ * overhead. Measured on the eval fixture app, not on the user's project.
+ */
+export const setupEvalSchema = z.object({
+  measuredAt: z.iso.datetime(),
+  model: z.string().min(1),
+  catalogVersion: z.string().min(1),
+  tasks: z.number().int().positive(),
+  setup: setupArmSchema,
+  default: setupArmSchema,
+  categories: z.array(
+    z.object({
+      category: z.string().min(1),
+      setupSuccessRate: z.number().min(0).max(1),
+      defaultSuccessRate: z.number().min(0).max(1),
+    }),
+  ),
+});
+export type SetupEval = z.infer<typeof setupEvalSchema>;
+
 export const snapshotSchema = z
   .object({
     schemaVersion: z.literal(1),
@@ -115,6 +145,8 @@ export const snapshotSchema = z
         }),
       )
       .default([]),
+    /** Latest recommended-vs-default measurement (M10); null until one exists. */
+    setupEval: setupEvalSchema.nullable().default(null),
   })
   .superRefine((s, ctx) => {
     const seen = new Set<string>();

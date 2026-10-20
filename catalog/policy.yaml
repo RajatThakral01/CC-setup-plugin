@@ -32,8 +32,11 @@ promotion:
   min_days_provisional: 60
 
 # Approved items with no commit for this many days go to watchlist.
+# More than max_auto_demotions demotions of approved items in one run are held for the owner
+# (M10 safeguard d), and are listed in the weekly digest.
 demotion:
   abandoned_days: 180
+  max_auto_demotions: 3
 
 # Weekly scheduled evals (FR-P7), strictly within WEEKLY_BUDGET_USD and TOTAL_BUDGET_USD.
 auto_evals:

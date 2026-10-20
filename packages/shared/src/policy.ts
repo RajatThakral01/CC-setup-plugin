@@ -1,6 +1,7 @@
 import { z } from 'zod';
 import type { Agreement } from './category-rules.js';
 import {
+  CLEARING_VERDICTS,
   gateIdSchema,
   isNextjsRelevant,
   type EvalSummary,
@@ -39,7 +40,14 @@ export const approvalPolicySchema = z.object({
     z.array(z.enum(['npx', 'uvx', 'docker', 'remote', 'plugin', 'skill_copy', 'manual'])),
   ),
   promotion: z.object({ min_days_provisional: z.number().int().nonnegative() }),
-  demotion: z.object({ abandoned_days: z.number().int().positive() }),
+  demotion: z.object({
+    abandoned_days: z.number().int().positive(),
+    /**
+     * More demotions of approved items than this in one run are held for the owner instead of
+     * applied (M10 safeguard d): a mass demotion is more likely a bug than a real event.
+     */
+    max_auto_demotions: z.number().int().min(0).default(3),
+  }),
   auto_evals: z.object({
     /** pg-boss cron (UTC) for the weekly scheduled eval batch. */
     cron: z.string().min(1),
@@ -512,10 +520,15 @@ export const securityOverrideSchema = z.object({
 });
 export type SecurityOverride = z.infer<typeof securityOverrideSchema>;
 
-/** Why an item was blocked (PRD FR-P10). Only `vulnerable_dependency` blocks can ever be lifted. */
+/** Why an item was blocked (PRD FR-P10). Only `vulnerable_dependency` and `suspected_injection` blocks are ever lifted automatically. */
 export const BLOCK_CAUSES = [
   'vulnerable_dependency',
   'injection',
+  /**
+   * A rule matched but no independent review confirmed it (M10 safeguard a). Never locks an org,
+   * never blocks the version for good, and is lifted after a clean re-check.
+   */
+  'suspected_injection',
   'exfiltration',
   'other',
 ] as const;
@@ -546,10 +559,15 @@ const EXFILTRATION_RULES = new Set(['runtime_egress', 'exfiltration_language', '
  * dependencies make it a `vulnerable_dependency` block; findings without a recorded rule (older
  * scorecards) count as `other`, which is never lifted automatically.
  */
-export function blockCause(findings: Array<Pick<SecurityFinding, 'rule'>>): BlockCause {
-  if (findings.some((x) => x.rule && INJECTION_RULES.has(x.rule))) return 'injection';
-  if (findings.some((x) => x.rule && EXFILTRATION_RULES.has(x.rule))) return 'exfiltration';
-  if (findings.length > 0 && findings.every((x) => x.rule === 'vulnerable_dependency'))
+export function blockCause(findings: Array<Pick<SecurityFinding, 'rule' | 'review'>>): BlockCause {
+  // A reviewed match the review cleared is not a cause at all (M10 safeguard a).
+  const live = findings.filter((x) => !(x.review && CLEARING_VERDICTS.has(x.review.verdict)));
+  const injection = live.filter((x) => x.rule && INJECTION_RULES.has(x.rule));
+  // Confirmed by review, or recorded before reviews existed (kept as they were judged then).
+  if (injection.some((x) => !x.review || x.review.verdict === 'instructs')) return 'injection';
+  if (injection.length > 0) return 'suspected_injection';
+  if (live.some((x) => x.rule && EXFILTRATION_RULES.has(x.rule))) return 'exfiltration';
+  if (live.length > 0 && live.every((x) => x.rule === 'vulnerable_dependency'))
     return 'vulnerable_dependency';
   return 'other';
 }
@@ -573,6 +591,21 @@ export function liftFor(f: PolicyFacts, p: ApprovalPolicy): PolicyDecision {
   });
   const r = f.blockRecord;
   if (!r) return hold('no block record (blocked before M8.3 or by hand)');
+  // A suspected injection (a rule match no review confirmed) is lifted after a clean re-check:
+  // gate 3 checked again after the block, with no flag left (M10 safeguard a).
+  if (r.cause === 'suspected_injection') {
+    const checked = f.gates?.gate3_security?.checkedAt;
+    if (!checked || Date.parse(checked) <= Date.parse(r.at))
+      return hold('suspected injection: waiting for a gate 3 re-check');
+    const flags = f.findings.filter((x) => FLAG_SEVERITIES.has(x.severity));
+    if (flags.length > 0)
+      return hold(`suspected injection: the re-check still has ${flags.length} flag(s)`);
+    return {
+      action: 'lift',
+      to: 'candidate',
+      reason: `block lifted: suspected injection not found again in the gate 3 re-check of ${checked.slice(0, 10)}`,
+    };
+  }
   if (!isPolicyActor(r.by)) return hold(`blocked by ${r.by}, not by the policy`);
   if (r.cause !== 'vulnerable_dependency') return hold(`cause ${r.cause} is never lifted`);
   if (

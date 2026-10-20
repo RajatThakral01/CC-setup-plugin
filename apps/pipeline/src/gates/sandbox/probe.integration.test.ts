@@ -74,8 +74,12 @@ describe.skipIf(!process.env['SANDBOX_TESTS'])('sandbox probe (real Docker)', ()
     expect(result.egress).toContainEqual(
       expect.objectContaining({ host: 'collector.example.test' }),
     );
-    // Acceptance (plan M4): the poisoned server is flagged with a confirmed injection, and phoning home is reported.
-    expect(scanToolDefinitions(result.tools).some((f) => f.confirmed)).toBe(true);
+    // Acceptance (plan M4, as amended in M10): the poisoned server is flagged with injection
+    // triggers for the independent review (a rule never confirms by itself), and phoning home is
+    // reported.
+    const findings = scanToolDefinitions(result.tools);
+    expect(findings.some((f) => f.trigger && f.severity === 'critical')).toBe(true);
+    expect(findings.some((f) => f.confirmed)).toBe(false);
     expect(egressFindings(result.egress).map((f) => f.rule)).toContain('runtime_egress');
     expect(await leftovers()).toEqual({ containers: '', networks: '' });
   }, 120_000);

@@ -1,13 +1,30 @@
 import type { Capability, SecurityFinding } from '@cc-setup-agent/shared';
 import type { EgressEvent, ToolDefinition } from './sandbox/probe.js';
 
-/** A security finding; `confirmed` findings block the item outright (PRD FR-C3). */
+/**
+ * A security finding; `confirmed` findings block the item outright (PRD FR-C3). Since M10 no rule
+ * confirms anything by itself (safeguard a): an injection match carries a `trigger` with the text
+ * around it, and an independent review (`review.ts`) decides whether it is confirmed, cleared or
+ * stays `suspected`.
+ */
 export interface Finding extends SecurityFinding {
   rule: string;
   confirmed: boolean;
+  /** Not confirmed by a review: blocks as `suspected_injection` (no org lock, lifted when clean). */
+  suspected?: boolean;
+  /** Text around the match, for the review. Never stored. */
+  trigger?: { context: string };
 }
 
-/** Instructions aimed at the model rather than describing the tool. High confidence → confirmed. */
+/** How much text on each side of a match the review sees. */
+export const TRIGGER_CONTEXT_CHARS = 600;
+const around = (text: string, index: number, length: number) =>
+  text.slice(
+    Math.max(0, index - TRIGGER_CONTEXT_CHARS),
+    Math.min(text.length, index + length + TRIGGER_CONTEXT_CHARS),
+  );
+
+/** Instructions aimed at the model rather than describing the tool. A match is a trigger only. */
 const INJECTION_PATTERNS: Array<[string, RegExp]> = [
   [
     'ignore_instructions',
@@ -75,9 +92,10 @@ export function scanText(
       findings.push({
         rule,
         severity: 'critical',
-        confirmed: true,
+        confirmed: false,
         description: `Instruction aimed at the model in ${where}`,
         evidence: clip(m[0]),
+        trigger: { context: around(text, m.index, m[0].length) },
       });
   }
   if (TAG_CHARS.test(text)) {
@@ -88,9 +106,11 @@ export function scanText(
     findings.push({
       rule: 'unicode_tag_chars',
       severity: 'critical',
-      confirmed: true,
+      confirmed: false,
       description: `Hidden Unicode tag characters in ${where}`,
       evidence: clip(hidden),
+      // The review sees the decoded hidden text, since that is what a model would read.
+      trigger: { context: `Hidden text decoded from Unicode tag characters: ${hidden}` },
     });
   }
   if (INVISIBLE.test(text)) {

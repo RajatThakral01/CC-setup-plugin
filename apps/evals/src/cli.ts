@@ -12,6 +12,7 @@ import {
   evalQueue,
   remainingBudget,
   budgetCapsFromConfig,
+  setupEvals,
   spendSummary,
 } from '@cc-setup-agent/db';
 import { categorySchema, isoWeekStart, type Category } from '@cc-setup-agent/shared';
@@ -30,7 +31,7 @@ import {
 } from './costs.js';
 import { EvalError } from './errors.js';
 import { evaluateCandidate } from './evaluate.js';
-import { compareSetup, formatSetupReport } from './evaluate-setup.js';
+import { compareSetup, formatSetupReport, toSetupEval } from './evaluate-setup.js';
 import { findIncumbent, loadEvalItem } from './items.js';
 import { runPilot } from './pilot.js';
 import { newRunId, runLimits } from './runner.js';
@@ -245,6 +246,11 @@ async function main(argv: string[]): Promise<number> {
           { taskSets, setup: arm.tool, runs, model },
         );
         const when = new Date().toISOString().slice(0, 10);
+        // A complete comparison is published with the next snapshot (the /setup trade-off).
+        if (!result.stopped)
+          await c.db.insert(setupEvals).values({
+            summary: toSetupEval(result, arm.report, new Date(), tasks),
+          });
         const report = formatSetupReport(result, arm.report, when);
         await mkdir(c.config.REPORTS_DIR, { recursive: true });
         const file = join(c.config.REPORTS_DIR, `setup-eval-${when}-${values.model}.md`);

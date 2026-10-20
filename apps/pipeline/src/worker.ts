@@ -1,7 +1,6 @@
 import { PgBoss } from 'pg-boss';
-import type { PipelineContext } from './context.js';
+import { gateDeps, type PipelineContext } from './context.js';
 import { formatDiscoveryReport, runDiscoveryJob } from './discovery/job.js';
-import { readVendors } from './catalog-config.js';
 import { runGates } from './gates/run.js';
 import { readPolicy } from './catalog-config.js';
 import { runCurationJob, runScheduledEvals, runWeeklyDigest } from './policy/jobs.js';
@@ -27,7 +26,7 @@ export async function startWorker(ctx: PipelineContext): Promise<() => Promise<v
   await boss.createQueue(GATES_QUEUE);
   await boss.schedule(GATES_QUEUE, ctx.config.GATES_CRON, {}, { tz: 'UTC' });
   await boss.work(GATES_QUEUE, async () => {
-    const deps = { ...ctx, vendors: await readVendors() };
+    const deps = await gateDeps(ctx);
     const pending = await runGates(deps, { mode: 'pending' });
     const recheck = await runGates(deps, { mode: 'recheck' });
     ctx.logger.info({ pending: pending.length, recheck: recheck.length }, 'gates job finished');

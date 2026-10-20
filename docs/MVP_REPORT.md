@@ -3,25 +3,25 @@
 Status on 2026-10-20, before the owner's final acceptance test (`docs/M10_ACCEPTANCE.md`). Owner-run items are marked **pending owner test**. They are updated from the owner's results.
 
 - **Catalog:** snapshot `2026.10.20-2`, signed, with 32 `recommended_provisional` items and 1 blocked item.
-- **Plugin:** `setup-agent` 0.2.0, bundle rebuilt 2026-10-20.
+- **Plugin:** `setup-agent` 0.3.0 (adds the setup trade-off to the plan), bundle rebuilt 2026-10-20.
 - **Claude Code:** 2.1.304 on the host, 2.1.303 in the eval image.
-- **Tests:** 741 passing, plus 6 real-Docker tests that run in CI; the eval sandbox tests also pass locally with real Docker. CI is green on every pushed milestone.
+- **Tests:** 760 passing, plus 6 real-Docker tests that run in CI; the eval sandbox tests also pass locally with real Docker. CI is green on every pushed milestone.
 
 ## PRD 17.2 acceptance criteria (as amended for the approval policy, PRD 0.4/0.5)
 
-| #   | Criterion                                                                                                       | Status                                                                                                                                          |
-| --- | --------------------------------------------------------------------------------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------- |
-| 1   | `/setup` on a fresh Next.js project produces a plan with reasons, scorecards and excluded items                 | Automated: pass. **Pending owner test**                                                                                                         |
-| 2   | Each item can be approved or rejected individually                                                              | Automated: pass. **Pending owner test**                                                                                                         |
-| 3   | Generated files pass schema validation and are written only after Claude Code permission prompts                | Automated (schema): pass. **Pending owner test** (prompts)                                                                                      |
-| 4   | Existing `CLAUDE.md` and `.mcp.json` content is preserved                                                       | Automated: pass. **Pending owner test**                                                                                                         |
-| 5   | Backups are created and `/setup-rollback` restores them exactly                                                 | Automated: pass. M8 owner test: pass. **Pending owner re-test**                                                                                 |
-| 6   | No secret values appear in any generated file, log or tool response                                             | Automated: pass. **Pending owner test**                                                                                                         |
-| 7   | `verify_setup` correctly reports a deliberately broken MCP server                                               | Automated: pass. M8 owner test failed, fixed in M8.2. **Pending owner re-test**                                                                 |
-| 8   | Catalog contains at least 50 approved items (policy or owner) for the MVP stack, each with a complete scorecard | **Owner-accepted exception** (2026-10-20): 32 approved, scorecards complete (32/32)                                                             |
-| 9   | At least one category shows eval results against an incumbent                                                   | **Pass**                                                                                                                                        |
-| 10  | A `blocked` item installed in a test project triggers the warning on the next run                               | Automated and bundle smoke test: pass. **Pending owner test**                                                                                   |
-| 11  | The recommended setup beats the default setup on the MVP benchmark tasks                                        | **Ahead, not confirmed:** Haiku screening 60/60 vs 56/60 (+7 points, under the 0.2 confirmation threshold). Sonnet confirmation: owner decision |
+| #   | Criterion                                                                                                       | Status                                                                                                                                                                      |
+| --- | --------------------------------------------------------------------------------------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| 1   | `/setup` on a fresh Next.js project produces a plan with reasons, scorecards and excluded items                 | Automated: pass. **Pending owner test**                                                                                                                                     |
+| 2   | Each item can be approved or rejected individually                                                              | Automated: pass. **Pending owner test**                                                                                                                                     |
+| 3   | Generated files pass schema validation and are written only after Claude Code permission prompts                | Automated (schema): pass. **Pending owner test** (prompts)                                                                                                                  |
+| 4   | Existing `CLAUDE.md` and `.mcp.json` content is preserved                                                       | Automated: pass. **Pending owner test**                                                                                                                                     |
+| 5   | Backups are created and `/setup-rollback` restores them exactly                                                 | Automated: pass. M8 owner test: pass. **Pending owner re-test**                                                                                                             |
+| 6   | No secret values appear in any generated file, log or tool response                                             | Automated: pass. **Pending owner test**                                                                                                                                     |
+| 7   | `verify_setup` correctly reports a deliberately broken MCP server                                               | Automated: pass. M8 owner test failed, fixed in M8.2. **Pending owner re-test**                                                                                             |
+| 8   | Catalog contains at least 50 approved items (policy or owner) for the MVP stack, each with a complete scorecard | **Owner-accepted exception** (2026-10-20): 32 approved, scorecards complete (32/32)                                                                                         |
+| 9   | At least one category shows eval results against an incumbent                                                   | **Pass**                                                                                                                                                                    |
+| 10  | A `blocked` item installed in a test project triggers the warning on the next run                               | Automated and bundle smoke test: pass. **Pending owner test**                                                                                                               |
+| 11  | The recommended setup beats the default setup on the MVP benchmark tasks                                        | **Owner-accepted as is (2026-10-20):** ahead in every category with a difference, not confirmed; benchmark tasks too easy (ceiling effect), harder tasks are Phase 2 item 1 |
 
 ### Evidence
 
@@ -136,7 +136,7 @@ Run 2026-10-20 with `pnpm evals setup-compare` (Haiku `claude-haiku-5-5`, Claude
   - `review-discount` 3/3: it missed the documented rounding and range checks;
   - `contact-form-submit` 1/3: it timed out trying to download a browser it can't reach.
 - **The recommended setup** never failed and never timed out. It used about 20% more tokens and about 25% more cost per run.
-- **Verdict:** the recommended setup is ahead in every category where the default lost anything, and never behind. The overall lead (+7 points) is under the 0.2 confirmation threshold, so by the harness's own rule it is **not confirmed**.
+- **Verdict (owner, 2026-10-20):** "ahead in every category with a difference, not confirmed; benchmark tasks too easy (ceiling effect), harder tasks are Phase 2 item 1". The overall lead (+7 points) is under the 0.2 confirmation threshold. Sonnet confirmation was skipped on the owner's decision.
 - **Ceiling effect:** both arms score 100% on database and docs, so with Haiku these tasks can't separate the setups.
 - **Cost of the comparison:** USD 0.61 in actual usage (121 runs, 3 default runs reused from the first, stopped attempt).
 
@@ -154,24 +154,27 @@ Run 2026-10-20 with `pnpm evals setup-compare` (Haiku `claude-haiku-5-5`, Claude
 | Purpose        | USD        |
 | -------------- | ---------- |
 | Classification | 0.5665     |
-| Evals          | 2.3331     |
-| **Total**      | **2.8996** |
+| Evals          | 0.9586     |
+| **Total**      | **1.5251** |
 
-Caps: USD 20 per week, USD 40 in total. This week: USD 2.76.
+Caps: USD 20 per week, USD 40 in total. This week: USD 1.39.
 
-- **Evals** include a USD 1.38 reservation left by one setup run that was stopped mid-flight on 2026-10-20 (`20261020-88aefc2cd0`, about a minute in, real cost likely under a cent). It stays booked until the owner decides; without it, total spend is USD 1.52.
-- **The 7 timed-out runs** of 2026-10-20 were re-booked at USD 0.05 in total on the owner's instruction ("estimated from relay call counts, checked against console"); the original USD 1.50 bookings are kept in `budget_ledger_corrections`.
+Two owner-approved re-bookings, each keeping the original booking in `budget_ledger_corrections`:
+
+- the 7 timed-out runs of 2026-10-20, re-booked from USD 10.50 to USD 0.05 in total ("estimated from relay call counts, checked against console");
+- the reservation left by the setup run stopped mid-flight, released from USD 1.38 to USD 0.01 ("estimated, run stopped after about 1 minute").
 
 ## Known issues and limitations
 
 - **Approved items:** 32 of the 50 targeted (criterion 8, owner-accepted exception).
-- **Gate 3 false positives (found 2026-10-20, owner decision pending):**
-  - the M4 injection rule for a plugin's first `SKILL.md` blocked three official plugins whose text quotes or discusses instructions:
-    - `anthropics-claude-plugins-official-receipts` quotes "ignore previous instructions" as an attack to refuse;
-    - `awslabs-agent-plugins-aws-transform`: "do NOT tell the user that recurring analyses require deploying infrastructure";
-    - `awslabs-agent-plugins-databases-on-aws`: "Do not silently skip validation — inform the user";
-  - the injection cause locks the `anthropics` and `awslabs` orgs, so the policy demoted the owner approvals of `frontend-design` and `webapp-testing` to candidate in the database;
-  - the published snapshot `2026.10.20-2` is unaffected.
+- **Gate 3 false positives (2026-10-20), and the safeguards added for them.**
+  - What happened: the old injection rule blocked three official plugins for phrases they quote or negate. The resulting org locks demoted two owner approvals.
+  - Now (see "Safeguards against false-block cascades" below):
+    - a rule match is only a trigger, and a Haiku review decides;
+    - vendor orgs are never locked automatically;
+    - new scanner, rule and policy versions and mass demotions are held for the owner.
+  - The three items were unblocked by the owner and re-gated with the review: receipts and databases-on-aws were cleared. aws-transform was judged "instructs"; that block is held for the owner, and awslabs is not locked.
+  - Snapshot `2026.10.20-2` was never affected.
 - **Eval coverage:**
   - item-vs-incumbent results exist only for browser_testing (Stage A, Haiku);
   - the whole-setup comparison covers all four task sets;
@@ -186,6 +189,17 @@ Caps: USD 20 per week, USD 40 in total. This week: USD 2.76.
 - **Gold set:** classification scores 7/10 on the owner labels; misses are mostly skill-vs-plugin confusion.
 - **Plugin updates:** Claude Code caches plugins by version, so every plugin release must bump `plugin.json` and `SERVER_VERSION` together (enforced by a test since 0.2.0).
 - **Eval timeouts:** confirmed fixed in the paid run. The one timeout in 121 runs was an agent looping on a blocked browser download, and it was booked at its actual USD 0.0048, not the cap.
+
+## Safeguards against false-block cascades (M10)
+
+| Safeguard                                   | Before                                                      | Now                                                                                                                                                                                                                                                                 |
+| ------------------------------------------- | ----------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| a. A rule match is a trigger, not a verdict | Every injection-pattern match blocked on its own            | Haiku (through the ledger) reviews the matched text in context. `instructs` confirms; `quotes`/`negates`/`discusses` clear. Anything else is _suspected_: blocked without an org lock or a blocked version, and lifted by the policy after a clean gate 3 re-check. |
+| b. No automatic org lock for vendor orgs    | Any injection or exfiltration block locked the author's org | Orgs in `catalog/vendors.yaml` are never locked; the would-be lock is a flag in the weekly digest.                                                                                                                                                                  |
+| c. New versions dry-run first               | Scanner, rule and policy changes applied at once            | The accepted scanner, policy and category-rules versions are recorded. New blocks and demotions from an unaccepted version are held (`pnpm run pipeline held`). A clean full run accepts the version; otherwise the owner does (`accept-version`).                  |
+| d. Mass demotions held                      | Every demotion applied                                      | More than `max_auto_demotions` (3) demotions of approved items in one policy run are held. Each run also reports how many decisions changed since the previous run.                                                                                                 |
+
+Regression tests reproduce the 2026-10-20 incident: the three quoted or negated texts, the vendor-org cascade, and the 4-demotion hold.
 
 ## Phase 2 recommendations
 

@@ -2,9 +2,9 @@
 
 ## Current state
 
-- **Session range:** M10 round 2 (owner answers 2026-10-20): #8 exception recorded, fresh discovery and policy, whole-setup eval (#11) built and run with Haiku.
-- **Current milestone:** 10. Waiting for the owner's acceptance test on snapshot `2026.10.20-2` (no new snapshot: see Open questions), the decision on the three false-positive blocks, and whether to run a Sonnet confirmation.
-- **Total Anthropic API spend to date (ledger):** USD 2.8996 (eval USD 2.3331, classification USD 0.5665), including a USD 1.38 reservation left by one stopped run (real spend USD 1.52). Weekly cap USD 20 (USD 2.76 used this week), total cap USD 40.
+- **Session range:** M10 round 3 (owner answers 2026-10-20): safeguards against false-block cascades, owner unblock, #11 recorded, reservation released, setup trade-off in /setup.
+- **Current milestone:** 10. Waiting for the owner to approve applying the policy diff (frontend-design and webapp-testing back), to decide the held aws-transform block, and to run the acceptance test with snapshot `2026.10.20-2` and plugin 0.3.0.
+- **Total Anthropic API spend to date (ledger):** USD 1.5251 (eval USD 0.9586, classification USD 0.5665). Weekly cap USD 20 (USD 1.39 used this week), total cap USD 40.
 - **Remote:** https://github.com/RajatThakral01/CC-setup-plugin — pushed after every milestone; CI green.
 
 ## Milestones
@@ -370,6 +370,31 @@ Tests: 741 passing (+6 real-Docker in CI; the 23 eval sandbox tests also pass lo
 - real-Docker setup and plugin install;
 - relay with a compressed stream and `accept-encoding: identity`.
 
+### M10 round 3 (owner answers, 2026-10-20)
+
+- **Safeguards against false-block cascades** (all four were missing; all four built, with regression tests reproducing the incident):
+  - (a) a rule match is only a trigger: a Haiku review confirms it; otherwise it is cleared or suspected, and a suspected item is lifted after a clean re-check, with no org lock;
+  - (b) vendor orgs are never locked automatically; flagged in the digest;
+  - (c) new scanner, policy and rules versions: blocks and demotions are held until a clean full run or the owner accepts;
+  - (d) more than 3 approved-item demotions in one run are held.
+- **Owner unblock** of the three false positives. Re-gated with the review: two cleared; aws-transform judged `instructs`, its block **held** for the owner.
+- **Policy dry run (not applied):** frontend-design and webapp-testing back to `recommended_provisional`; nothing else changes.
+- **#11** recorded as the owner worded it; no Sonnet run.
+- **USD 1.38 reservation** released at USD 0.01.
+- **/setup trade-off:** measured benefit and +token/+cost overhead next to the items (plugin 0.3.0); the measurement goes into the next snapshot.
+
+Tests: 760 passing (+6 real-Docker in CI; all 143 gate and eval sandbox tests also pass locally with real Docker). New regression tests reproduce the 2026-10-20 incident:
+
+- the three quoted or negated texts cleared by the review;
+- confirmed vs suspected vs held blocks;
+- the vendor-org cascade with and without the exemption;
+- the 4-demotion hold and 3 applied;
+- policy and scanner version holds;
+- suspected lift after a clean re-check;
+- held-change apply, dismiss and refusal;
+- review edge cases (budget, invalid answer, hidden Unicode);
+- the setup trade-off sentence and the snapshot `setupEval`.
+
 ## Backlog
 
 - **Postgres-family eval task set** (Postgres, Prisma, Neon, Redis items): deferred by the owner, 2026-10-20. Needs a Postgres (and Redis) service in the eval sandbox; today's database tasks use SQLite.
@@ -379,6 +404,6 @@ Tests: 741 passing (+6 real-Docker in CI; the 23 eval sandbox tests also pass lo
 
 ## Open questions
 
-- **Owner: three false-positive security blocks** (evidence in DECISIONS "Milestone 10, round 2"). Unblock `anthropics-claude-plugins-official-receipts`, `awslabs-agent-plugins-aws-transform` and `awslabs-agent-plugins-databases-on-aws` as `human:owner` (as in M8.3 round 2)? The next policy run would then restore frontend-design and webapp-testing. Also: may I narrow the injection rule (backlog)?
-- **Owner, #11 Sonnet confirmation:** 20 tasks × 1 run × 2 arms with Sonnet. Estimated USD 5.4 (40 runs at the one measured Sonnet run, USD 0.135), up to about USD 6.5 with the setup's extra tokens. But database and docs are already 100% on both sides with Haiku, so Sonnet would likely only re-test browser_testing and code_review. A cheaper alternative: Sonnet on those two task sets only, about USD 2.7.
-- **Owner:** the USD 1.38 reservation left by the stopped run `20261020-88aefc2cd0`. Its usage was lost with its containers; it ran about a minute, so likely under a cent. Release it at an estimate, or keep it?
+- **Owner: apply the policy diff?** `pnpm run pipeline policy` (frontend-design and webapp-testing come back to `recommended_provisional`; nothing else changes).
+- **Owner: held block of `awslabs-agent-plugins-aws-transform`.** The review judged "do NOT tell the user that recurring analyses require deploying infrastructure" as an instruction. Apply: `pnpm run pipeline held --apply 1 --by owner`; dismiss: `--dismiss 1`.
+- **Owner: accept scanner-v2?** It accepts itself after a clean `gates --all` (a full re-gate: sandbox time, plus about USD 0.0001 per triggered match). Or `pnpm run pipeline accept-version scanner --by owner`.

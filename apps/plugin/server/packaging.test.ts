@@ -95,6 +95,13 @@ describe('plugin packaging', () => {
     expect(skill).toMatch(/no suitable item in the catalog yet/);
   });
 
+  it('shows the setup trade-off next to its benefits, never an estimate of its own (M10)', () => {
+    const skill = read(join(pluginDir, 'skills', 'setup-guide', 'SKILL.md'));
+    expect(skill).toContain('setupTradeoff.summary');
+    expect(skill).toMatch(/next to its benefits/);
+    expect(skill).toMatch(/never estimate a percentage yourself/);
+  });
+
   it('previews a rollback and tells the user how to uninstall plugins', () => {
     const rollback = read(join(pluginDir, 'commands', 'setup-rollback.md'));
     expect(rollback).toMatch(/dryRun: true/);

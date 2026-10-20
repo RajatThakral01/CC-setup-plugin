@@ -1,6 +1,7 @@
 import { and, desc, gte, inArray, lt, or, sql } from 'drizzle-orm';
 import type { EvalSummary, Status } from '@cc-setup-agent/shared';
 import type { Db } from './client.js';
+import { openHeldChanges, type HeldChange } from './holds.js';
 import {
   budgetLedger,
   catalogItems,
@@ -36,6 +37,13 @@ export interface Digest {
   /** Items held by the latest policy run, counted per failing criterion. */
   heldByCriterion: Array<{ criterion: string; items: number }>;
   latestPolicyRun: { version: string; at: Date; evaluated: number } | null;
+  /** Status changes held for the owner (M10 safeguards c and d): new versions, mass demotions. */
+  heldChanges: HeldChange[];
+  /**
+   * Org locks not applied because the org is a listed vendor (M10 safeguard b). Filled by the
+   * pipeline, which knows the vendor list; empty here.
+   */
+  orgLockFlags: Array<{ org: string; itemId: string; cause: string }>;
   evals: { runs: number; costUsd: number };
   spend: { weekUsd: number };
 }
@@ -158,6 +166,8 @@ export async function buildDigest(db: Db, weekStart: string): Promise<Digest> {
     latestPolicyRun: latest
       ? { version: latest.version, at: latest.at, evaluated: decisions.length }
       : null,
+    heldChanges: await openHeldChanges(db),
+    orgLockFlags: [],
     evals: { runs: evalRow?.runs ?? 0, costUsd: evalRow?.cost ?? 0 },
     spend: { weekUsd: spendRow?.usd ?? 0 },
   };

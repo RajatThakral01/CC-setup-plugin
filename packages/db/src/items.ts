@@ -110,8 +110,9 @@ async function transitionInTx(
     .from(itemVersions)
     .where(and(eq(itemVersions.itemId, itemId), eq(itemVersions.pinned, true)));
   const pinned = pin?.version ?? null;
-  // The policy may lift only its own vulnerable-dependency block, on a newer, unblocked version.
-  if (byPolicy && row.status === 'blocked') {
+  // The policy may lift only its own vulnerable-dependency block, on a newer, unblocked version,
+  // or a suspected injection (no review confirmed it; M10), whoever recorded the suspicion.
+  if (byPolicy && row.status === 'blocked' && row.blockRecord?.cause !== 'suspected_injection') {
     const r = row.blockRecord;
     const why =
       !r || !isPolicyActor(r.by)
@@ -170,8 +171,11 @@ async function transitionInTx(
             findings: options.block?.findings ?? [],
             at: now.toISOString(),
           },
+          // A suspicion doesn't block the version for good; only a confirmed or proven cause does.
           blockedVersions:
-            pinned && !row.blockedVersions.includes(pinned)
+            pinned &&
+            options.block?.cause !== 'suspected_injection' &&
+            !row.blockedVersions.includes(pinned)
               ? [...row.blockedVersions, pinned]
               : row.blockedVersions,
         }

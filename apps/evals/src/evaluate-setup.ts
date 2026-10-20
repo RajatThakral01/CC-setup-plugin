@@ -1,5 +1,5 @@
 import { BudgetExceededError, budgetCapsFromConfig, remainingBudget } from '@cc-setup-agent/db';
-import { isoWeekStart } from '@cc-setup-agent/shared';
+import { isoWeekStart, type SetupEval } from '@cc-setup-agent/shared';
 import { estimateRunUsd } from './costs.js';
 import { cachedBaselineRuns, type RunRow } from './evaluate.js';
 import { runOne, type EvalContext, type EvalRunRecord } from './runner.js';
@@ -159,6 +159,36 @@ export async function compareSetup(
     ambiguous,
     stopped,
     newRuns,
+  };
+}
+
+const arm4 = (a: ArmStats): SetupEval['setup'] => ({
+  runs: a.runs,
+  successRate: a.successRate,
+  meanTokens: a.meanTokens,
+  meanCostUsd: a.meanCostUsd,
+  meanWallSeconds: a.meanWallSeconds,
+});
+
+/** The summary stored in `setup_evals` and published in the next snapshot (M10). */
+export function toSetupEval(
+  c: SetupComparison,
+  setup: SetupArmReport,
+  measuredAt: Date,
+  tasks: number,
+): SetupEval {
+  return {
+    measuredAt: measuredAt.toISOString(),
+    model: c.model,
+    catalogVersion: setup.catalogVersion,
+    tasks,
+    setup: arm4(c.overall.setup),
+    default: arm4(c.overall.baseline),
+    categories: c.categories.map((k) => ({
+      category: k.category,
+      setupSuccessRate: k.setup.successRate,
+      defaultSuccessRate: k.baseline.successRate,
+    })),
   };
 }
 

@@ -5,6 +5,7 @@ import { fakePackument } from '../../../../test/fixtures/sources/github.js';
 import type { RepoFacts, RepoHealth } from '../sources/github.js';
 import { gate0, gate1, gate2, gate3, type GateFacts } from './evaluate.js';
 import { installScriptFindings, scanToolDefinitions, type Finding } from './rules.js';
+import { applyVerdict } from './review.js';
 import { statusChangeFor } from './run.js';
 
 const now = new Date('2026-10-19T00:00:00Z');
@@ -251,15 +252,28 @@ describe('gate 3: security', () => {
     description: 'example-dep@1.0.0 has GHSA-x',
   });
 
-  it('blocks the poisoned fixture', () => {
-    const r = gate3(
-      facts({
-        start: { status: 'ok', tools: POISONED_TOOLS },
-        findings: scanToolDefinitions(POISONED_TOOLS),
-      }),
-    );
-    expect(r).toMatchObject({ block: true, result: { result: 'fail' } });
-    expect(computeConfidence({ ...all(facts()), gate3_security: r.result }).confidence).toBe('low');
+  it('blocks the poisoned fixture only once a review confirms it (M10 safeguard a)', () => {
+    const triggers = scanToolDefinitions(POISONED_TOOLS);
+    const withFindings = (findings: typeof triggers) =>
+      gate3(facts({ start: { status: 'ok', tools: POISONED_TOOLS }, findings }));
+    // Rule matches alone: flagged (gate 3 fails), but no block of either kind.
+    expect(withFindings(triggers)).toMatchObject({
+      block: false,
+      suspected: false,
+      result: { result: 'fail' },
+    });
+    const review = (verdict: 'instructs' | 'unclear') => (f: (typeof triggers)[number]) =>
+      f.trigger ? applyVerdict(f, { verdict, reason: 'test', model: 'claude-haiku-5-5' }) : f;
+    const confirmed = withFindings(triggers.map(review('instructs')));
+    expect(confirmed).toMatchObject({ block: true, result: { result: 'fail' } });
+    expect(
+      computeConfidence({ ...all(facts()), gate3_security: confirmed.result }).confidence,
+    ).toBe('low');
+    expect(withFindings(triggers.map(review('unclear')))).toMatchObject({
+      block: false,
+      suspected: true,
+      result: { result: 'fail', notes: expect.stringMatching(/suspected/) },
+    });
   });
 
   it('fails without blocking on a high-severity vulnerable dependency', () => {

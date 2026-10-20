@@ -8,7 +8,7 @@ import { createTestDatabase, type TestDatabase } from '@cc-setup-agent/db/testin
 import { createLocalArtifactStore } from './artifacts.js';
 import { measuredCosts } from './costs.js';
 import { mcpConfigFor, type RunSpec } from './driver.js';
-import { compareSetup, formatSetupReport } from './evaluate-setup.js';
+import { compareSetup, formatSetupReport, toSetupEval } from './evaluate-setup.js';
 import type { EvalContext } from './runner.js';
 import {
   buildSetupArm,
@@ -225,6 +225,22 @@ describe('compareSetup (recommended setup vs default)', () => {
     expect(again.driver.calls.every((c) => c.tool.kind === 'setup')).toBe(true);
     expect(again.driver.calls).toHaveLength(8);
     expect(r2.overall.baseline.runs).toBe(8);
+
+    // The stored summary (published in the next snapshot for the /setup trade-off).
+    const summary = toSetupEval(r, report, new Date('2026-01-01T00:00:00Z'), 4);
+    expect(summary).toMatchObject({
+      measuredAt: '2026-01-01T00:00:00.000Z',
+      model: FAST,
+      catalogVersion: CATALOG,
+      tasks: 4,
+      setup: { runs: 8, successRate: 1 },
+      default: { runs: 8, successRate: 0.75 },
+    });
+    expect(summary.categories).toContainEqual({
+      category: 'docs',
+      setupSuccessRate: 1,
+      defaultSuccessRate: 0.5,
+    });
 
     const md = formatSetupReport(r, report, '2026-01-01');
     expect(md).toContain('| docs | 4/4 (100%)');

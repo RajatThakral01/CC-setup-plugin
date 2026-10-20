@@ -25,7 +25,7 @@ function entryLines(e: DigestEntry, triageUrl: string): string[] {
   ];
 }
 
-/** The weekly digest as markdown (PRD FR-P8). Nothing in it asks the owner to do anything. */
+/** The weekly digest as markdown (PRD FR-P8). Only held changes and org-lock flags ask the owner for anything. */
 export function renderDigestMarkdown(d: Digest, triageUrl: string): string {
   const section = (title: string, list: DigestEntry[], empty: string) => [
     `## ${title} (${list.length})`,
@@ -48,6 +48,32 @@ export function renderDigestMarkdown(d: Digest, triageUrl: string): string {
     ...section('Demoted', d.demoted, 'None this week.'),
     ...section('Owner vetoes', d.vetoes, 'None this week.'),
     ...section('Blocks lifted', d.lifted, 'None this week.'),
+    `## Held for the owner (${d.heldChanges.length})`,
+    '',
+    ...(d.heldChanges.length === 0
+      ? ['Nothing held.']
+      : [
+          'These changes were **not applied**: a new scanner, policy or rules version, or too many demotions of approved items at once. Apply or dismiss each with `pnpm run pipeline held`.',
+          '',
+          ...d.heldChanges.map(
+            (h) =>
+              `- #${h.id} \`${h.itemId}\`: ${h.fromStatus} → ${h.toStatus} (${h.trigger}, by \`${h.actor}\`): ${cell(h.reason)}`,
+          ),
+        ]),
+    '',
+    `## Org-lock flags: vendor orgs (${d.orgLockFlags.length})`,
+    '',
+    ...(d.orgLockFlags.length === 0
+      ? ['None.']
+      : [
+          'An item of a vendor org (catalog/vendors.yaml) is blocked for a cause that would lock its org. Vendor orgs are never locked automatically; review the block.',
+          '',
+          ...d.orgLockFlags.map(
+            (f) =>
+              `- \`${f.org}\`: [\`${f.itemId}\`](${triageUrl}/items/${encodeURIComponent(f.itemId)}) blocked for ${f.cause}`,
+          ),
+        ]),
+    '',
     '## Not approved: why',
     '',
     ...(d.heldByCriterion.length === 0

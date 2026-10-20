@@ -17,6 +17,7 @@ import {
   itemVersions,
   ne,
   scorecards,
+  setupEvals,
   snapshots,
   sql,
   type Db,
@@ -73,6 +74,15 @@ async function loadSources(db: Db): Promise<SnapshotSource[]> {
 }
 
 /** Blocked versions of items that are no longer blocked themselves (PRD FR-P10). */
+async function latestSetupEval(db: Db): Promise<Snapshot['setupEval']> {
+  const [row] = await db
+    .select({ summary: setupEvals.summary })
+    .from(setupEvals)
+    .orderBy(desc(setupEvals.createdAt))
+    .limit(1);
+  return row?.summary ?? null;
+}
+
 async function loadBlockedVersions(db: Db): Promise<Snapshot['blockedVersions']> {
   const rows = await db
     .select()
@@ -123,6 +133,7 @@ export async function publishSnapshot(
     version,
     now,
     await loadBlockedVersions(deps.db),
+    await latestSetupEval(deps.db),
   );
   const bytes = serializeSnapshot(snapshot);
   const signature = signBytes(privateKeyPem, bytes);

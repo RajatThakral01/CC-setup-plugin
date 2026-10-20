@@ -194,4 +194,27 @@ describe('correctSpend', () => {
     );
     expect(await t.db.select().from(budgetLedgerCorrections)).toEqual([]);
   });
+
+  it('releases a reservation left by an interrupted run, on request, with the audit row', async () => {
+    const id = await reserveSpend(t.db, config, {
+      purpose: 'eval',
+      model: 'claude-haiku-5-5',
+      costUsd: 1.38,
+      ref: 'example-run (reservation)',
+    });
+    await correctSpend(t.db, {
+      ledgerId: id,
+      costUsd: 0.01,
+      ref: 'example-run (estimated, run stopped after about 1 minute)',
+      actor: 'human:owner',
+      reason: 'owner: release the interrupted run',
+      releaseReservation: true,
+    });
+    const [row] = await t.db.select().from(budgetLedger);
+    expect(row).toMatchObject({ costUsd: 0.01, reservation: false });
+    expect((await t.db.select().from(budgetLedgerCorrections))[0]).toMatchObject({
+      oldCostUsd: 1.38,
+      oldRef: 'example-run (reservation)',
+    });
+  });
 });

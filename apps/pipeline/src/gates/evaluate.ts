@@ -243,10 +243,14 @@ export function countedFindings(findings: Finding[]): Finding[] {
   );
 }
 
-/** Gate 3, security (FR-C3). Flagged items never pass; confirmed injection blocks. */
-export function gate3(f: GateFacts): { result: GateResult; block: boolean } {
+/**
+ * Gate 3, security (FR-C3). Flagged items never pass. A finding confirmed by the independent review
+ * blocks; one the review couldn't confirm blocks as suspected (M10 safeguard a).
+ */
+export function gate3(f: GateFacts): { result: GateResult; block: boolean; suspected: boolean } {
   const counted = countedFindings(f.findings);
   const block = counted.some((x) => x.confirmed);
+  const suspected = !block && counted.some((x) => x.suspected === true);
   const severe = counted.some((x) => x.severity === 'high' || x.severity === 'critical');
   const medium = counted.some((x) => x.severity === 'medium');
   const scannedAnything =
@@ -285,16 +289,19 @@ export function gate3(f: GateFacts): { result: GateResult; block: boolean } {
           : 'not_run';
   return {
     block,
+    suspected,
     result: {
       result,
       evidence,
       ...(block
         ? { notes: 'confirmed prompt injection: blocked' }
-        : severe
-          ? { notes: 'flagged: needs a written override to approve' }
-          : unprobed.length > 0
-            ? { notes: `bundled MCP server(s) not verified: ${unprobed.join('; ')}` }
-            : {}),
+        : suspected
+          ? { notes: 'suspected prompt injection: blocked until a clean re-check' }
+          : severe
+            ? { notes: 'flagged: needs a written override to approve' }
+            : unprobed.length > 0
+              ? { notes: `bundled MCP server(s) not verified: ${unprobed.join('; ')}` }
+              : {}),
       checkedAt: f.now.toISOString(),
     },
   };

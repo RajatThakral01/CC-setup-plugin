@@ -7,8 +7,10 @@ import {
   type ComponentEstimate,
   type ComponentFile,
 } from './components.js';
-import type { HttpClient, Logger } from '@cc-setup-agent/core';
+import type { HttpClient, LlmClient, Logger } from '@cc-setup-agent/core';
 import {
+  acceptedVersion,
+  acceptVersion,
   and,
   asc,
   catalogItems,
@@ -22,6 +24,7 @@ import {
   sql,
   statusEvents,
   desc,
+  holdChange,
   transitionStatus,
   type Db,
 } from '@cc-setup-agent/db';
@@ -53,6 +56,7 @@ import { gate0, gate1, gate2, gate3, type GateFacts } from './evaluate.js';
 import { resolveInstall, sandboxShell, type ResolvedInstall } from './install.js';
 import { osvFindings, resolveDirectDeps, type PackageVersion } from './osv.js';
 import { probeRemoteServer } from './remote.js';
+import { reviewTriggers, SCANNER_VERSION } from './review.js';
 import {
   contextOverheadTokens,
   inferCapabilities,
@@ -74,6 +78,13 @@ export interface GateDeps {
   config: AppConfig;
   logger: Logger;
   vendors: Vendors;
+  /** Reviews gate 3 rule matches (M10 safeguard a). Without it every match stays suspected. */
+  llm?: LlmClient;
+  /**
+   * Whether SCANNER_VERSION is the accepted scanner (M10 safeguard c). When false, new blocks and
+   * demotions are held for the owner. `runGates` sets it; direct callers default to accepted.
+   */
+  scannerAccepted?: boolean;
 }
 
 export interface ItemGateReport {
@@ -82,10 +93,14 @@ export interface ItemGateReport {
   confidence: string;
   results: Record<string, string>;
   statusChange?: { from: Status; to: Status; reason: string };
+  /** A change held for the owner instead of applied (unaccepted scanner version). */
+  held?: { from: Status; to: Status; reason: string };
   error?: string;
 }
 
 const SYSTEM = 'system';
+/** Statuses a block or demotion takes an item out of (held while a scanner is unaccepted). */
+const APPROVED: ReadonlySet<Status> = new Set(['recommended', 'recommended_provisional']);
 export const BLOCKED_RECHECK_DAYS = 7;
 
 type Item = typeof catalogItems.$inferSelect;
@@ -130,16 +145,18 @@ async function weeklyDownloads(deps: GateDeps, name: string): Promise<number | n
  */
 export function instructionTextFindings(where: string, text: string): Finding[] {
   const HIDDEN = new Set(['unicode_tag_chars', 'invisible_unicode']);
-  return scanText(where, text).map((f) =>
-    HIDDEN.has(f.rule)
-      ? f
-      : {
-          ...f,
-          severity: 'low' as const,
-          confirmed: false,
-          description: `${f.description} (instruction wording; recorded, not a verdict)`,
-        },
-  );
+  return scanText(where, text).map((f): Finding => {
+    if (HIDDEN.has(f.rule)) return f;
+    // Recorded as evidence only, so there is nothing for the review to decide.
+    const rest = { ...f };
+    delete rest.trigger;
+    return {
+      ...rest,
+      severity: 'low',
+      confirmed: false,
+      description: `${f.description} (instruction wording; recorded, not a verdict)`,
+    };
+  });
 }
 
 /** Sandbox options for probing an MCP server (the item itself or one a plugin bundles). */
@@ -501,6 +518,7 @@ export function statusChangeFor(
   status: Status,
   outcome: {
     block: boolean;
+    suspected?: boolean;
     hygieneFailures: string[];
     abandoned: boolean;
     rejectedBySystem?: boolean;
@@ -509,7 +527,14 @@ export function statusChangeFor(
   if (outcome.block && status !== 'blocked')
     return {
       to: 'blocked',
-      reason: 'gate 3: confirmed prompt injection in tool definitions or instructions',
+      reason:
+        'gate 3: confirmed prompt injection in tool definitions or instructions (rule match confirmed by an independent review)',
+    };
+  if (outcome.suspected && status !== 'blocked')
+    return {
+      to: 'blocked',
+      reason:
+        'gate 3: suspected prompt injection (rule match not confirmed by an independent review); lifted after a clean re-check',
     };
   // A gate-0 rejection made by the system is lifted when a later check passes; human rejections stay.
   if (
@@ -539,7 +564,14 @@ export async function gateItem(
   item: Item,
   now = new Date(),
 ): Promise<ItemGateReport> {
-  const facts = await gatherFacts(deps, item, now);
+  const gathered = await gatherFacts(deps, item, now);
+  // A rule match is only a trigger: an independent review confirms, clears or suspects it.
+  const reviewed = await reviewTriggers(
+    gathered.findings,
+    { ...(deps.llm ? { llm: deps.llm } : {}), model: deps.config.MODEL_FAST, logger: deps.logger },
+    `gate3:${item.id}`,
+  );
+  const facts = { ...gathered, findings: reviewed.findings };
   const g0 = gate0(facts);
   const g1 = gate1(facts);
   const g2 = gate2(facts);
@@ -553,12 +585,15 @@ export async function gateItem(
   const { confidence } = computeConfidence(gateResults);
   const version = facts.install.version;
   const tools = facts.toolsFromProbe;
-  const securityFindings = facts.findings.map(({ rule, severity, description, evidence }) => ({
-    rule,
-    severity,
-    description,
-    ...(evidence ? { evidence } : {}),
-  }));
+  const securityFindings = facts.findings.map(
+    ({ rule, severity, description, evidence, review }) => ({
+      rule,
+      severity,
+      description,
+      ...(evidence ? { evidence } : {}),
+      ...(review ? { review } : {}),
+    }),
+  );
 
   await deps.db.transaction(async (tx) => {
     await tx
@@ -569,11 +604,18 @@ export async function gateItem(
         gateResults,
         securityFindings,
         confidence,
+        scannerVersion: SCANNER_VERSION,
         updatedAt: now,
       })
       .onConflictDoUpdate({
         target: [scorecards.itemId, scorecards.version],
-        set: { gateResults, securityFindings, confidence, updatedAt: now },
+        set: {
+          gateResults,
+          securityFindings,
+          confidence,
+          scannerVersion: SCANNER_VERSION,
+          updatedAt: now,
+        },
       });
     await tx.update(itemVersions).set({ pinned: false }).where(eq(itemVersions.itemId, item.id));
     await tx
@@ -638,27 +680,45 @@ export async function gateItem(
     item.status === 'rejected' && (await lastStatusActor(deps.db, item.id)) === SYSTEM;
   const change = statusChangeFor(item.status, {
     block: g3.block,
+    suspected: g3.suspected,
     hygieneFailures: g0.failures,
     abandoned: g2.abandoned,
     rejectedBySystem,
   });
   if (change) {
+    const block =
+      change.to === 'blocked'
+        ? {
+            cause: g3.block ? ('injection' as const) : ('suspected_injection' as const),
+            findings: securityFindings
+              .filter((f) => f.severity === 'critical')
+              .map((f) => f.description),
+          }
+        : undefined;
+    // New blocks and demotions from a scanner version nobody accepted yet wait for the owner.
+    const demotes = change.to === 'blocked' || APPROVED.has(item.status);
+    if (deps.scannerAccepted === false && demotes) {
+      await holdChange(deps.db, {
+        itemId: item.id,
+        from: item.status,
+        to: change.to,
+        actor: SYSTEM,
+        reason: change.reason,
+        ...(block ? { block } : {}),
+        source: 'gates',
+        trigger: 'scanner_change',
+        versions: { scanner: SCANNER_VERSION },
+      });
+      report.held = { from: item.status, ...change };
+      return report;
+    }
     await transitionStatus(
       deps.db,
       item.id,
       change.to,
       SYSTEM,
       change.reason,
-      change.to === 'blocked'
-        ? {
-            block: {
-              cause: 'injection',
-              findings: securityFindings
-                .filter((f) => f.severity === 'critical')
-                .map((f) => f.description),
-            },
-          }
-        : {},
+      block ? { block } : {},
     );
     report.statusChange = { from: item.status, ...change };
   }
@@ -748,6 +808,13 @@ export async function runGates(
   await sweepSandboxes(deps.docker).catch((e: unknown) =>
     deps.logger.warn({ err: e }, 'sandbox sweep failed'),
   );
+  const acceptedScanner = await acceptedVersion(deps.db, 'scanner');
+  deps = { ...deps, scannerAccepted: acceptedScanner === SCANNER_VERSION };
+  if (!deps.scannerAccepted)
+    deps.logger.warn(
+      { accepted: acceptedScanner, current: SCANNER_VERSION },
+      'scanner version not accepted yet: new blocks and demotions are held for the owner',
+    );
   const items = (await selectItems(deps.db, selection, deps.config)).slice(
     0,
     options.limit ?? Infinity,
@@ -785,5 +852,16 @@ export async function runGates(
   await Promise.all(
     Array.from({ length: Math.min(deps.config.GATE_CONCURRENCY, items.length) }, worker),
   );
+  // A new scanner takes effect on its own only after a clean dry run over the whole catalog.
+  if (
+    !deps.scannerAccepted &&
+    'mode' in selection &&
+    selection.mode === 'all' &&
+    options.limit === undefined &&
+    reports.every((r) => !r.error && !r.held)
+  ) {
+    await acceptVersion(deps.db, 'scanner', SCANNER_VERSION, 'system: clean full dry run');
+    deps.logger.info({ version: SCANNER_VERSION }, 'scanner version accepted after a clean run');
+  }
   return reports;
 }

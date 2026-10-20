@@ -664,8 +664,8 @@ export function digestPage(d: Digest, reviewer: string, csrf: string): View {
     'Weekly digest',
     html`<h1>Catalog digest, week of ${d.weekStart}</h1>
       <p>
-        What the approval policy did up to ${d.weekEnd} (UTC). Nothing here needs action; open an
-        item to veto it. <a href="/digest?week=${prev}">← previous week</a>
+        What the approval policy did up to ${d.weekEnd} (UTC). Only held changes need action; open
+        an item to veto it. <a href="/digest?week=${prev}">← previous week</a>
       </p>
       <p class="muted">
         ${d.latestPolicyRun ? `Latest policy run ${d.latestPolicyRun.version} at ${d.latestPolicyRun.at.toISOString().slice(0, 16).replace('T', ' ')} UTC (${d.latestPolicyRun.evaluated} items).` : 'The policy has not run yet.'}
@@ -675,6 +675,26 @@ export function digestPage(d: Digest, reviewer: string, csrf: string): View {
       ${digestList('Approved', d.approved)} ${digestList('Promoted', d.promoted)}
       ${digestList('Demoted', d.demoted)} ${digestList('Owner vetoes', d.vetoes)}
       ${digestList('Blocks lifted', d.lifted)}
+      <section>
+        <h2>Held for the owner (${d.heldChanges.length})</h2>
+        ${
+          d.heldChanges.length === 0
+            ? html`<p class="muted">Nothing held.</p>`
+            : html`<p>
+                  Not applied: a new scanner, policy or rules version, or too many demotions of
+                  approved items at once. Apply or dismiss with <code>pnpm run pipeline held</code>.
+                </p>
+                <ul>
+                  ${d.heldChanges.map(
+                    (h) =>
+                      html`<li>
+                        #${h.id} <a href="/items/${encodeURIComponent(h.itemId)}">${h.itemId}</a>:
+                        ${h.fromStatus} → ${h.toStatus} (${h.trigger}, by ${h.actor}): ${h.reason}
+                      </li>`,
+                  )}
+                </ul>`
+        }
+      </section>
       <section>
         <h2>Not approved: why</h2>
         ${

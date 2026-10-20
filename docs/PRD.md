@@ -23,6 +23,7 @@ This is draft v0.1 of the PRD for a Claude Code plugin that recommends, builds a
 | 0.2 | 19 Oct 2026 | FR-D10: candidate intake filter and daily cap (owner decision) |
 | 0.3 | 19 Oct 2026 | FR-D10: classify before ranking; relevance-first priority; out-of-scope marking (owner decision) |
 | 0.5 | 20 Oct 2026 | Policy-v2 (owner decision): owner approvals re-checked like any item; FR-P10 security block lifting and org lock; FR-D9a gold-set tiers |
+| 0.6 | 20 Oct 2026 | Safeguards against false-block cascades (owner decision): FR-P11 to FR-P14; FR-P10 amended (suspected injections, vendor orgs) |
 | 0.4 | 20 Oct 2026 | Autonomous curation (owner decision): FR-C9 becomes policy approval with optional owner veto; approval policy FR-P1 to FR-P9; classification agreement (FR-D9a); "when unsure, don't recommend" replaces "when unsure, ask the owner" |
 
 ## 2. Executive summary
@@ -245,6 +246,10 @@ Guiding principle: when unsure, don't recommend. Uncertainty never creates a man
 | FR-P7 | Weekly automatic evals: a scheduled job picks the most promising eval-ready candidates per category (relevance, vendor, star velocity) and runs the two-stage harness strictly within the weekly and total caps. The planned batch and its cost estimate are logged before anything is spent. Scheduled runs need no `--confirm-spend`; manual runs still do. | P0 |
 | FR-P8 | Weekly digest: a markdown file in `reports/` and a triage page listing what the policy approved, promoted and demoted, and why, with evidence links. | P0 |
 | FR-P10 | Security blocks: every block records its cause and the blocked version. The policy may lift only its own block, and only when all hold: the cause was vulnerable dependencies (never a confirmed prompt injection or exfiltration, which stay blocked permanently and lock the author's org out of auto-approval); a newer version fixes it; gates 0 to 3 all pass on that exact version; the item returns to `candidate` pinned to the new version; the blocked version stays blocked (in the catalog and as a warning in snapshots). Every lift is audited. | P0 |
+| FR-P11 | A gate 3 rule match is a trigger, never a verdict by itself. An independent review (Haiku, through the budget ledger) of the exact matched text in its context decides: an instruction to the agent confirms it (injection block); quoting, negating or discussing clears it. Without a confirmation the item is "suspected": blocked, with no org lock and no permanently blocked version, and lifted after a clean re-check. | P0 |
+| FR-P12 | Org locks (FR-P10) never apply automatically to orgs in `catalog/vendors.yaml`; they become a flag in the weekly digest. | P0 |
+| FR-P13 | A changed scanner, rule set or policy runs as a dry run against the catalog first: blocks or demotions it would newly cause are held and listed for the owner, and take effect only when the owner applies them or the version is accepted (a clean full run, or the owner). | P0 |
+| FR-P14 | Every policy run, scheduled or manual, compares its result with the previous one. If it would demote more than 3 approved items at once, it holds those demotions and flags them in the digest. | P0 |
 | FR-P9 | Owner veto: one click in triage demotes an item (to `candidate` when it was recommended) and locks it out of auto-approval, with a written reason; the owner can lift the veto. | P0 |
 
 ### 9.3 Eval harness

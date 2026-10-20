@@ -29,3 +29,6 @@ export class BudgetExceededError extends AppError {
     );
   }
 }
+
+/** A held change can't be resolved as asked (unknown, already resolved, or not by the owner). */
+export class HeldChangeError extends AppError {}

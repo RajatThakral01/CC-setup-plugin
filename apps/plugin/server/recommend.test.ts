@@ -189,6 +189,48 @@ describe('recommendSetup', () => {
     expect(git.tradeoff).toContain('can use shell');
   });
 
+  it('shows the measured trade-off of a setup next to its benefit (M10)', () => {
+    const measured = recommendSetup(
+      {
+        ...snapshot,
+        setupEval: {
+          measuredAt: '2026-10-20T18:00:00.000Z',
+          model: 'claude-haiku-5-5',
+          catalogVersion: '2026.10.20-2',
+          tasks: 20,
+          setup: {
+            runs: 60,
+            successRate: 1,
+            meanTokens: 238_530,
+            meanCostUsd: 0.0056,
+            meanWallSeconds: 49,
+          },
+          default: {
+            runs: 60,
+            successRate: 0.9333,
+            meanTokens: 198_203,
+            meanCostUsd: 0.0045,
+            meanWallSeconds: 43,
+          },
+          categories: [],
+        },
+      },
+      profile,
+      answers,
+      15000,
+    );
+    expect(measured.setupTradeoff.summary).toBe(
+      `Measured 2026-10-20 on our benchmark app (20 tasks, claude-haiku-5-5): a recommended setup solved 100% of tasks vs 93% without one, using +20% tokens and +24% cost per task. This setup always loads about ${measured.contextOverhead.totalTokens.toLocaleString('en-US')} tokens of tool definitions and descriptions per request (more when a tool is used).`,
+    );
+    expect(measured.setupTradeoff.measured?.tasks).toBe(20);
+    // Without a measurement it says so, and never invents a percentage.
+    expect(r.setupTradeoff.measured).toBeNull();
+    expect(r.setupTradeoff.summary).toMatch(
+      /^The overhead of a recommended setup hasn't been measured/,
+    );
+    expect(r.setupTradeoff.summary).not.toMatch(/%/);
+  });
+
   it('is byte-identical across runs (FR-R8)', () => {
     expect(JSON.stringify(recommendSetup(fixtureSnapshot(), profile, answers, 15000))).toBe(
       JSON.stringify(r),

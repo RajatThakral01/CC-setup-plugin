@@ -1,9 +1,10 @@
 import { BudgetExceededError, buildDigest } from '@cc-setup-agent/db';
 import { isoWeekStart } from '@cc-setup-agent/shared';
-import { readCategoryRules, readPolicy } from '../catalog-config.js';
+import { readCategoryRules, readPolicy, readVendors } from '../catalog-config.js';
 import { classifyPending } from '../classify/run.js';
 import type { PipelineContext } from '../context.js';
 import { runAutoEvals } from './auto-evals.js';
+import { orgLocks } from './facts.js';
 import { renderDigestMarkdown, writeReport } from './digest.js';
 import { formatPolicyReport, runPolicy } from './run.js';
 
@@ -15,7 +16,10 @@ export async function writeDigest(
   ctx: Pick<PipelineContext, 'db' | 'config'>,
   weekStart: string,
 ): Promise<string> {
-  const digest = await buildDigest(ctx.db, weekStart);
+  const digest = {
+    ...(await buildDigest(ctx.db, weekStart)),
+    orgLockFlags: (await orgLocks(ctx.db, (await readVendors()).githubOrgs)).vendorFlags,
+  };
   return writeReport(
     ctx.config.REPORTS_DIR,
     `digest-${weekStart}.md`,

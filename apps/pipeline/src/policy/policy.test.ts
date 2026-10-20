@@ -1,8 +1,11 @@
 import { afterAll, beforeAll, beforeEach, describe, expect, it, vi } from 'vitest';
 import { createLlmClient, createLogger, parseConfig, type MessagesApi } from '@cc-setup-agent/core';
 import {
+  acceptedVersions,
+  acceptVersion,
   budgetLedger,
   buildDigest,
+  heldChanges,
   catalogItems,
   createLedgerGuard,
   eq,
@@ -11,6 +14,7 @@ import {
   itemVersions,
   policyDecisions,
   rawSourceRecords,
+  resolveHeldChange,
   scorecards,
   signalSnapshots,
   statusEvents,
@@ -33,8 +37,8 @@ import { createGithubClient } from '../sources/github.js';
 import { createNpmClient } from '../sources/npm.js';
 import { planAutoEvals, runAutoEvals } from './auto-evals.js';
 import { renderDigestMarkdown } from './digest.js';
-import { ruleInputsFrom } from './facts.js';
-import { runPolicy } from './run.js';
+import { orgLocks, ruleInputsFrom } from './facts.js';
+import { formatPolicyReport, runPolicy } from './run.js';
 
 const GH = 'https://api.github.test';
 const NOW = new Date('2026-10-20T12:00:00.000Z');
@@ -69,7 +73,10 @@ afterAll(async () => {
   await t?.cleanup();
 });
 beforeEach(async () => {
+  await t.db.delete(acceptedVersions);
+  await acceptVersion(t.db, 'scanner', 'scanner-v1', 'test: as the migration seeds it');
   for (const table of [
+    heldChanges,
     policyDecisions,
     evalRuns,
     budgetLedger,
@@ -579,5 +586,192 @@ describe('policy-v2 on a database', () => {
       (d) => d.itemId === 'example-mcp-alpha',
     );
     expect(decision?.criteria.find((c) => !c.ok)).toMatchObject({ id: 'org_not_locked' });
+  });
+});
+
+describe('M10 safeguards against false-block cascades', () => {
+  const ownerApprove = (id: string) =>
+    transitionStatus(t.db, id, 'recommended_provisional', 'human:owner', 'owner approval');
+  const status = async (id: string) =>
+    (await t.db.select().from(catalogItems).where(eq(catalogItems.id, id)))[0]?.status;
+  const blockForInjection = (id: string, cause: 'injection' | 'suspected_injection') =>
+    transitionStatus(t.db, id, 'blocked', 'system', `gate 3: ${cause}`, {
+      block: { cause, findings: ['Instruction aimed at the model in SKILL.md'] },
+    });
+
+  it('never locks a vendor org automatically; it flags it instead (b, the 2026-10-20 incident)', async () => {
+    // Two owner approvals and a newly blocked item, all from one org: today's shape.
+    for (const id of ['example-mcp-alpha', 'example-mcp-beta', 'example-mcp-gamma'])
+      await seed({ id });
+    await ownerApprove('example-mcp-alpha');
+    await ownerApprove('example-mcp-beta');
+    await blockForInjection('example-mcp-gamma', 'injection');
+
+    // Without the vendor exemption the block locks the org and demotes both approvals.
+    const before = await runPolicy(
+      { ...deps().deps, vendorOrgs: new Set<string>() },
+      { apply: false, secondOpinions: false, now: NOW },
+    );
+    expect(
+      before.outcomes.filter((o) => o.decision.action === 'demote').map((o) => o.decision.reason),
+    ).toEqual([
+      expect.stringContaining('org_not_locked'),
+      expect.stringContaining('org_not_locked'),
+    ]);
+
+    // With it: nothing is demoted, and the would-be lock is a flag for the digest.
+    const vendorOrgs = new Set(['example-org']);
+    const after = await runPolicy(
+      { ...deps().deps, vendorOrgs },
+      { apply: true, secondOpinions: false, now: NOW },
+    );
+    expect(after.outcomes.filter((o) => o.decision.action === 'demote')).toEqual([]);
+    expect(await status('example-mcp-alpha')).toBe('recommended_provisional');
+    const { locks, vendorFlags } = await orgLocks(t.db, vendorOrgs);
+    expect(locks.size).toBe(0);
+    expect(vendorFlags).toEqual([
+      { org: 'example-org', itemId: 'example-mcp-gamma', cause: 'injection' },
+    ]);
+    const md = renderDigestMarkdown(
+      { ...(await buildDigest(t.db, isoWeekStart(new Date()))), orgLockFlags: vendorFlags },
+      'http://127.0.0.1:4400',
+    );
+    expect(md).toContain('## Org-lock flags: vendor orgs (1)');
+    expect(md).toContain('`example-org`');
+  });
+
+  it('a suspected injection locks no org, blocks no version, and is lifted after a clean re-check (a)', async () => {
+    await seed({ id: 'example-mcp-alpha' });
+    await seed({ id: 'example-mcp-beta' });
+    await ownerApprove('example-mcp-beta');
+    await blockForInjection('example-mcp-alpha', 'suspected_injection');
+    const [row] = await t.db
+      .select()
+      .from(catalogItems)
+      .where(eq(catalogItems.id, 'example-mcp-alpha'));
+    expect(row?.blockedVersions).toEqual([]);
+    expect((await orgLocks(t.db, new Set())).locks.size).toBe(0);
+
+    // Not re-checked since the block: it stays blocked.
+    const waiting = await runPolicy(deps().deps, { apply: true, secondOpinions: false, now: NOW });
+    expect(waiting.outcomes.find((o) => o.id === 'example-mcp-alpha')?.decision.reason).toMatch(
+      /waiting for a gate 3 re-check/,
+    );
+    // A clean gate 3 re-check after the block: the policy lifts it.
+    const later = new Date(Date.now() + 60_000).toISOString();
+    await t.db
+      .update(scorecards)
+      .set({
+        gateResults: { ...PASS, gate3_security: { ...PASS.gate3_security!, checkedAt: later } },
+      })
+      .where(eq(scorecards.itemId, 'example-mcp-alpha'));
+    const lifted = await runPolicy(deps().deps, { apply: true, secondOpinions: false, now: NOW });
+    expect(lifted.outcomes.find((o) => o.id === 'example-mcp-alpha')).toMatchObject({
+      decision: { action: 'lift', to: 'candidate' },
+      applied: true,
+    });
+    expect(await status('example-mcp-beta')).toBe('recommended_provisional');
+  });
+
+  it('holds more than 3 demotions of approved items in one run, and applies 3 (d)', async () => {
+    const ids = ['example-mcp-a', 'example-mcp-b', 'example-mcp-c', 'example-mcp-d'];
+    for (const id of ids) {
+      // Unmaintained: each owner approval is superseded by the policy.
+      await seed({ id, lastCommitDays: 120 });
+      await ownerApprove(id);
+    }
+    const report = await runPolicy(deps().deps, { apply: true, secondOpinions: false, now: NOW });
+    expect(report.outcomes.filter((o) => o.held === 'mass_demotion')).toHaveLength(4);
+    for (const id of ids) expect(await status(id)).toBe('recommended_provisional');
+    expect(await t.db.select().from(heldChanges)).toHaveLength(4);
+    expect(formatPolicyReport(report, true)).toContain('HELD FOR THE OWNER: 4');
+
+    // A second run holds the same changes again, without duplicates.
+    await runPolicy(deps().deps, { apply: true, secondOpinions: false, now: NOW });
+    expect(await t.db.select().from(heldChanges)).toHaveLength(4);
+
+    // The owner applies one and dismisses another; a moved item can't be applied blindly.
+    const [h1, h2, h3] = await t.db.select().from(heldChanges).orderBy(heldChanges.id);
+    await resolveHeldChange(t.db, h1!.id, 'apply', 'human:owner');
+    expect(await status(h1!.itemId)).toBe('candidate');
+    const [event] = (
+      await t.db.select().from(statusEvents).where(eq(statusEvents.itemId, h1!.itemId))
+    ).slice(-1);
+    expect(event).toMatchObject({ actor: 'policy:policy-test' });
+    expect(event?.reason).toMatch(/held: mass_demotion; applied by human:owner/);
+    await resolveHeldChange(t.db, h2!.id, 'dismiss', 'human:owner');
+    await transitionStatus(t.db, h3!.itemId, 'watchlist', 'human:owner', 'moved by hand');
+    await expect(resolveHeldChange(t.db, h3!.id, 'apply', 'human:owner')).rejects.toThrow(
+      /now watchlist/,
+    );
+    await expect(resolveHeldChange(t.db, h2!.id, 'apply', 'human:owner')).rejects.toThrow(
+      /already dismissed/,
+    );
+    await expect(resolveHeldChange(t.db, h3!.id, 'apply', 'policy:x' as never)).rejects.toThrow(
+      /only the owner/,
+    );
+  });
+
+  it('applies up to 3 demotions of approved items at once', async () => {
+    for (const id of ['example-mcp-a', 'example-mcp-b', 'example-mcp-c']) {
+      await seed({ id, lastCommitDays: 120 });
+      await ownerApprove(id);
+    }
+    const report = await runPolicy(deps().deps, { apply: true, secondOpinions: false, now: NOW });
+    expect(report.outcomes.filter((o) => o.applied && o.decision.action === 'demote')).toHaveLength(
+      3,
+    );
+    expect(await t.db.select().from(heldChanges)).toEqual([]);
+  });
+
+  it('holds demotions from a changed policy until a clean run or the owner accepts it (c)', async () => {
+    await seed({ id: 'example-mcp-alpha', lastCommitDays: 60 });
+    await ownerApprove('example-mcp-alpha');
+    const base = await runPolicy(deps().deps, { apply: true, secondOpinions: false, now: NOW });
+    expect(base.outcomes.filter((o) => o.decision.action === 'demote')).toEqual([]);
+
+    // A stricter maintenance rule would now demote the approval: it is held, not applied.
+    const stricter = { ...policy, max_days_since_commit: 30 };
+    const changed = await runPolicy(
+      { ...deps().deps, policy: stricter },
+      { apply: true, secondOpinions: false, now: NOW },
+    );
+    expect(changed.outcomes.find((o) => o.id === 'example-mcp-alpha')?.held).toBe('policy_change');
+    expect(changed.acceptedNow).toEqual([]);
+    expect(await status('example-mcp-alpha')).toBe('recommended_provisional');
+    expect(formatPolicyReport(changed, true)).toMatch(
+      /policy policy-test#\w{8} is not accepted yet/,
+    );
+
+    // A change that demotes nothing takes effect on its own after the clean run.
+    const harmless = { ...policy, promotion: { min_days_provisional: 61 } };
+    const clean = await runPolicy(
+      { ...deps().deps, policy: harmless },
+      { apply: true, secondOpinions: false, now: NOW },
+    );
+    expect(clean.acceptedNow).toEqual(['policy']);
+  });
+
+  it('holds demotions that rest on findings of an unaccepted scanner version (c)', async () => {
+    await seed({
+      id: 'example-mcp-alpha',
+      findings: [{ severity: 'high', description: 'new finding from a newer scanner' }],
+    });
+    // An approved item whose latest re-check, by a newer scanner, found a new high finding.
+    await t.db
+      .update(catalogItems)
+      .set({ status: 'recommended_provisional' })
+      .where(eq(catalogItems.id, 'example-mcp-alpha'));
+    await t.db.update(scorecards).set({ scannerVersion: 'scanner-v2' });
+    const held = await runPolicy(deps().deps, { apply: true, secondOpinions: false, now: NOW });
+    expect(held.outcomes.find((o) => o.id === 'example-mcp-alpha')).toMatchObject({
+      decision: { action: 'demote', to: 'blocked' },
+      held: 'scanner_change',
+      applied: false,
+    });
+    await acceptVersion(t.db, 'scanner', 'scanner-v2', 'human:owner');
+    const applied = await runPolicy(deps().deps, { apply: true, secondOpinions: false, now: NOW });
+    expect(applied.outcomes.find((o) => o.id === 'example-mcp-alpha')?.applied).toBe(true);
+    expect(await status('example-mcp-alpha')).toBe('blocked');
   });
 });

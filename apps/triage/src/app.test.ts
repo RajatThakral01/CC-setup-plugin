@@ -531,7 +531,8 @@ describe('approval policy and owner veto (PRD FR-P8, FR-P9)', () => {
     expect(page).toContain('Catalog digest, week of');
     expect(page).toContain('/items/example-a');
     expect(page).toContain('official-vendor tier, all criteria hold');
-    expect(page).toContain('Nothing here needs action');
+    expect(page).toContain('Only held changes need action');
+    expect(page).toContain('Held for the owner (0)');
     expect((await get('/digest', false)).status).toBe(303);
   });
 });
