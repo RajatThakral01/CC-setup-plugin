@@ -1,6 +1,6 @@
 {
   "name": "setup-agent",
-  "version": "0.1.0",
+  "version": "0.2.0",
   "description": "Recommends, writes and verifies an evidence-backed Claude Code setup for your project (MVP: Next.js).",
   "author": { "name": "Rajat Thakral" },
   "license": "UNLICENSED",

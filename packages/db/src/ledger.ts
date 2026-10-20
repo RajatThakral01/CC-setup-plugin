@@ -1,8 +1,10 @@
 import { and, eq, sql } from 'drizzle-orm';
 import {
+  actorSchema,
   computeCostUsd,
   computeRemaining,
   isoWeekStart,
+  type Actor,
   type AppConfig,
   type BudgetCaps,
   type BudgetPurpose,
@@ -13,7 +15,7 @@ import {
 import { assertModelAllowed, type Logger } from '@cc-setup-agent/core';
 import type { Db, DbOrTx } from './client.js';
 import { BudgetExceededError } from './errors.js';
-import { budgetLedger } from './schema.js';
+import { budgetLedger, budgetLedgerCorrections } from './schema.js';
 
 export function budgetCapsFromConfig(config: AppConfig): BudgetCaps {
   return {
@@ -174,6 +176,42 @@ export async function settleReservation(
     let total = 0;
     for (const record of actual) total += await recordSpend(tx, config, record, logger);
     return total;
+  });
+}
+
+/**
+ * Re-books one ledger row at a corrected amount (M10, owner decision only): the row keeps counting
+ * against the caps at its new amount, and `budget_ledger_corrections` keeps the old amount and ref,
+ * the actor and the reason. Reservations can't be corrected (they are settled by the runner).
+ */
+export async function correctSpend(
+  db: Db,
+  correction: { ledgerId: number; costUsd: number; ref: string; actor: Actor; reason: string },
+): Promise<void> {
+  actorSchema.parse(correction.actor);
+  if (!(correction.costUsd >= 0)) throw new Error('corrected cost must be a non-negative number');
+  if (correction.reason.trim() === '') throw new Error('a correction needs a reason');
+  await db.transaction(async (tx) => {
+    const [row] = await tx
+      .select()
+      .from(budgetLedger)
+      .where(eq(budgetLedger.id, correction.ledgerId))
+      .for('update');
+    if (!row) throw new Error(`ledger row ${correction.ledgerId} not found`);
+    if (row.reservation) throw new Error(`ledger row ${correction.ledgerId} is a reservation`);
+    await tx.insert(budgetLedgerCorrections).values({
+      ledgerId: row.id,
+      oldCostUsd: row.costUsd,
+      oldRef: row.ref,
+      newCostUsd: correction.costUsd,
+      newRef: correction.ref,
+      actor: correction.actor,
+      reason: correction.reason,
+    });
+    await tx
+      .update(budgetLedger)
+      .set({ costUsd: correction.costUsd, ref: correction.ref })
+      .where(eq(budgetLedger.id, row.id));
   });
 }
 

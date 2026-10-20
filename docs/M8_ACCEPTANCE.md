@@ -1,5 +1,7 @@
 # Milestone 8 — owner acceptance test (re-run after M8.2)
 
+> Superseded by `docs/M10_ACCEPTANCE.md` (2026-10-20). Kept for the record.
+
 Two checks from the plan:
 
 1. Install the plugin from the local marketplace and complete `/setup` on a fresh Next.js app.

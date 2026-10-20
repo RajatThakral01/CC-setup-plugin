@@ -1,3 +1,4 @@
+import { eq } from 'drizzle-orm';
 import { afterAll, beforeAll, beforeEach, describe, expect, it, vi } from 'vitest';
 import { parseConfig } from '@cc-setup-agent/core';
 import type { Logger } from '@cc-setup-agent/core';
@@ -5,11 +6,13 @@ import { BudgetExceededError } from './errors.js';
 import {
   assertBudget,
   budgetCapsFromConfig,
+  correctSpend,
   recordSpend,
   remainingBudget,
+  reserveSpend,
   spendSummary,
 } from './ledger.js';
-import { budgetLedger } from './schema.js';
+import { budgetLedger, budgetLedgerCorrections } from './schema.js';
 import { createTestDatabase, type TestDatabase } from './testing.js';
 
 let t: TestDatabase;
@@ -20,6 +23,7 @@ afterAll(async () => {
   await t?.cleanup();
 });
 beforeEach(async () => {
+  await t.db.delete(budgetLedgerCorrections);
   await t.db.delete(budgetLedger);
 });
 
@@ -143,5 +147,51 @@ describe('assertBudget', () => {
       weekUsd: 0.25,
       totalUsd: 1.25,
     });
+  });
+});
+
+describe('correctSpend', () => {
+  it('re-books a row and keeps the original booking in the audit trail', async () => {
+    await spend('eval', 1.5, '2026-10-20T08:00:00Z');
+    await spend('eval', 0.01, '2026-10-20T08:01:00Z');
+    const [capped] = await t.db.select().from(budgetLedger).where(eq(budgetLedger.costUsd, 1.5));
+    await correctSpend(t.db, {
+      ledgerId: capped!.id,
+      costUsd: 0.007,
+      ref: 'example-run (estimated)',
+      actor: 'human:owner',
+      reason: 'owner re-booking',
+    });
+    // The corrected row counts at its new amount: USD 17 weekly eval share − 0.017.
+    const week = await remainingBudget(t.db, '2026-10-19', 'eval', caps);
+    expect(week.remainingUsd).toBeCloseTo(17 - 0.017, 6);
+    const [audit] = await t.db.select().from(budgetLedgerCorrections);
+    expect(audit).toMatchObject({
+      ledgerId: capped!.id,
+      oldCostUsd: 1.5,
+      newCostUsd: 0.007,
+      newRef: 'example-run (estimated)',
+      actor: 'human:owner',
+      reason: 'owner re-booking',
+    });
+  });
+
+  it('refuses reservations, unknown rows, negative amounts and a missing reason', async () => {
+    const id = await reserveSpend(t.db, config, {
+      purpose: 'eval',
+      model: 'claude-haiku-5-5',
+      costUsd: 1.5,
+      ref: 'r (reservation)',
+    });
+    const fix = { costUsd: 0.01, ref: 'x', actor: 'human:owner' as const, reason: 'r' };
+    await expect(correctSpend(t.db, { ...fix, ledgerId: id })).rejects.toThrow(/reservation/);
+    await expect(correctSpend(t.db, { ...fix, ledgerId: id + 999 })).rejects.toThrow(/not found/);
+    await expect(correctSpend(t.db, { ...fix, ledgerId: id, costUsd: -1 })).rejects.toThrow(
+      /non-negative/,
+    );
+    await expect(correctSpend(t.db, { ...fix, ledgerId: id, reason: ' ' })).rejects.toThrow(
+      /reason/,
+    );
+    expect(await t.db.select().from(budgetLedgerCorrections)).toEqual([]);
   });
 });

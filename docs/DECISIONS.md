@@ -586,6 +586,35 @@ Recovered after the laptop restarted mid-session: tasks 1–3 were mostly writte
 - `code_review`: a teammate's uncommitted change, to review and fix against its own documentation: XSS through `dangerouslySetInnerHTML`, an endpoint leaking environment secrets, discount rounding and range checks, off-by-one pagination, missing quantity validation. `technologies: []`.
 - `pnpm evals selftest` (free): docs 5/5, database 5/5, code_review 5/5. The first docs run failed `shop-redirect`: Next.js answers `/shop/` with its own trailing-slash 308 to `/shop` before the proxy runs, so the check now follows the chain (every hop 308, ending at `/products`).
 
+## Milestone 10 (end-to-end acceptance, owner request 2026-10-20)
+
+**Re-booking the 7 timed-out runs (owner decision)**
+
+- The owner checked the Anthropic console: USD 0.19 of Haiku usage that day. The 26 completed runs account for USD 0.143, so the 7 timed-out runs cost at most about USD 0.05. They were re-booked at USD 0.05 in total, split by relay call count (4, 3, 9, 5, 5, 4 and 5 of 35 calls). Each row's ref ends "(estimated from relay call counts, checked against console)".
+- `correctSpend` (`packages/db`) is the only way to change a booked ledger row. It needs an actor and a reason, and refuses reservations, unknown rows and negative amounts. It writes the old amount and ref to `budget_ledger_corrections` (migration 0010) in the same transaction. The 7 rows have actor `human:owner`, and the reason quotes the owner's console figures.
+- `eval_runs.cost_source = 'estimate'` for those runs. `measuredCosts` now uses only `relay` and `claude` costs, so neither caps nor estimates skew pre-flight estimates.
+- chrome-devtools-mcp's eval summary `meanCostUsd` was recomputed from its 15 runs: USD 0.0073.
+
+**Snapshot 2026.10.20-2**
+
+- Published after a policy dry run without second opinions (no LLM calls; nothing to apply).
+- Same 32 approved items + 1 blocked as `2026.10.20-1`, plus the corrected chrome-devtools eval summary.
+
+**Plugin 0.2.0**
+
+- The installed plugin was a cached copy from commit `09a63e8` (2026-10-19, before M8.2), under `~/.claude/plugins/cache/cc-setup-agent/setup-agent/0.1.0`.
+- Claude Code caches installed plugins by version (the cache folder is named after it), and `plugin.json` was never bumped. So `plugin.json` and `SERVER_VERSION` are now 0.2.0, and a packaging test keeps them equal.
+- `claude plugin list` reports the version from the marketplace source directory, not from the cache. The acceptance test therefore checks the cache folder for `0.2.0`.
+- `claude plugin validate` passes for the plugin and the marketplace (Claude Code 2.1.304). `claude plugin update <plugin> --scope user` and `claude plugin marketplace update [name]` were checked against `--help`.
+
+**Acceptance test design**
+
+- **Blocked-item check:** uses an inert `.mcp.json` entry named after the catalog's existing blocked item (`davila7-claude-code-templates`, command `node -e 0`). This avoids blocking a real approved item just to test the warning; the plugin matches installed servers by name, package or URL. Verified on the built bundle.
+- **Broken-server check:** uses context7 (it needs `CONTEXT7_API_KEY`), so one edit makes `package_resolves` and `env_present` fail together.
+- **Secrets grep:** pattern tested on macOS. It catches a literal key value and ignores `${VAR}` placeholders.
+
+**PRD 17.2 #8 and #11** are reported as fail and not run, with options for the owner. No policy change or paid run was made without the owner.
+
 ## Dependencies
 
 One line each: why it was added.

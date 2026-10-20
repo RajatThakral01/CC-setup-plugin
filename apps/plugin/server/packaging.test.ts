@@ -25,6 +25,10 @@ describe('plugin packaging', () => {
       version: string;
     };
     expect(manifest).toMatchObject({ name: 'setup-agent' });
+    // Claude Code caches installed plugins by version: every release bumps both together.
+    expect(read(join(pluginDir, 'server', 'index.ts'))).toContain(
+      `export const SERVER_VERSION = '${manifest.version}';`,
+    );
     const mcp = JSON.parse(read(join(pluginDir, '.mcp.json'))) as {
       mcpServers: Record<string, { command: string; args: string[]; env: Record<string, string> }>;
     };

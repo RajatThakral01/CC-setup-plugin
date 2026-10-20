@@ -1,6 +1,6 @@
-import { and, evalRuns, gt, ne, sql, type DbOrTx } from '@cc-setup-agent/db';
+import { and, evalRuns, gt, inArray, sql, type DbOrTx } from '@cc-setup-agent/db';
 
-/** Mean measured cost per model over recorded eval runs that spent money (cap bookings excluded). */
+/** Mean measured cost per model over recorded eval runs that spent money (cap bookings and estimates excluded). */
 export type MeasuredCosts = Map<string, { meanUsd: number; runs: number }>;
 
 export async function measuredCosts(db: DbOrTx): Promise<MeasuredCosts> {
@@ -11,8 +11,8 @@ export async function measuredCosts(db: DbOrTx): Promise<MeasuredCosts> {
       runs: sql<string>`count(*)`,
     })
     .from(evalRuns)
-    // A cap booking (usage unknown) is a ceiling, not a measurement.
-    .where(and(gt(evalRuns.costUsd, 0), ne(evalRuns.costSource, 'cap')))
+    // Only measured costs: a cap booking is a ceiling and a re-booked estimate isn't a measurement.
+    .where(and(gt(evalRuns.costUsd, 0), inArray(evalRuns.costSource, ['relay', 'claude'])))
     .groupBy(evalRuns.model);
   return new Map(rows.map((r) => [r.model, { meanUsd: Number(r.mean), runs: Number(r.runs) }]));
 }

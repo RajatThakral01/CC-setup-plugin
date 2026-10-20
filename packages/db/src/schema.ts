@@ -1,5 +1,6 @@
 import { sql } from 'drizzle-orm';
 import {
+  bigint,
   bigserial,
   boolean,
   date,
@@ -249,8 +250,9 @@ export const evalRuns = pgTable(
     stage: text('stage').notNull().default('screen'),
     /**
      * Where `cost_usd` came from (M8.3): `relay` (per-response usage seen by the relay), `claude`
-     * (Claude Code's own totals), `cap` (usage unknown, run cap booked) or `none` (no API call).
-     * Cap bookings are not measurements, so cost estimates leave them out.
+     * (Claude Code's own totals), `cap` (usage unknown, run cap booked), `estimate` (re-booked by
+     * the owner from an estimate, M10) or `none` (no API call). Cost estimates use only measured
+     * sources (`relay`, `claude`).
      */
     costSource: text('cost_source').notNull().default('claude'),
     createdAt: createdAt(),
@@ -350,6 +352,24 @@ export const budgetLedger = pgTable(
   },
   (t) => [index('budget_ledger_week_purpose_idx').on(t.weekStart, t.purpose)],
 );
+
+/**
+ * Audit trail of owner-approved re-bookings (M10): the ledger row holds the corrected amount, and
+ * this table keeps what it said before, who changed it and why.
+ */
+export const budgetLedgerCorrections = pgTable('budget_ledger_corrections', {
+  id: bigserial('id', { mode: 'number' }).primaryKey(),
+  ledgerId: bigint('ledger_id', { mode: 'number' })
+    .notNull()
+    .references(() => budgetLedger.id),
+  oldCostUsd: numeric('old_cost_usd', { precision: 12, scale: 6, mode: 'number' }).notNull(),
+  oldRef: text('old_ref'),
+  newCostUsd: numeric('new_cost_usd', { precision: 12, scale: 6, mode: 'number' }).notNull(),
+  newRef: text('new_ref'),
+  actor: text('actor').notNull(),
+  reason: text('reason').notNull(),
+  createdAt: createdAt(),
+});
 
 export const snapshots = pgTable('snapshots', {
   version: text('version').primaryKey(),

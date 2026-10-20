@@ -2,9 +2,9 @@
 
 ## Current state
 
-- **Session range:** M8.3 round 3 (owner request 2026-10-20: eval cost booking, timeout diagnosis, repo-root skills, three new task sets; recovered after a laptop restart mid-session).
-- **Current milestone:** 8.3 round 3 done. Next: owner answer on the 7 cap-booked runs (see Open questions), then the next scheduled eval batch (testdino first) and M10.
-- **Total Anthropic API spend to date (ledger):** USD 11.2771 (eval USD 10.7879, of which USD 10.50 is 7 timed-out runs still booked at the USD 1.50 cap: their relay logs have no token counts, so they couldn't be re-booked; classification USD 0.4892). Weekly cap USD 20 (USD 11.14 used this week), total cap USD 40. No API calls this round.
+- **Session range:** M10 (owner request 2026-10-20): re-booking of the 7 timed-out runs, acceptance doc, MVP report, plugin rebuild.
+- **Current milestone:** 10 prepared; waiting for the owner's final acceptance test (`docs/M10_ACCEPTANCE.md`) and decisions on PRD 17.2 #8 and #11 (see Open questions).
+- **Total Anthropic API spend to date (ledger):** USD 0.8271 (eval USD 0.3379, classification USD 0.4892). The 7 timed-out runs are re-booked at USD 0.05 in total (owner decision); their original USD 1.50 bookings are kept in `budget_ledger_corrections`. Weekly cap USD 20 (USD 0.69 used this week), total cap USD 40. No API calls this round.
 - **Remote:** https://github.com/RajatThakral01/CC-setup-plugin — pushed after every milestone; CI green.
 
 ## Milestones
@@ -24,7 +24,7 @@
 | 9   | Eval harness                | Built; pilot done; full eval pending owner go-ahead | M9     |
 | 8.2 | Fixes after M8 acceptance   | Done; owner re-acceptance pending                   | M8.2   |
 | 8.3 | Autonomous curation         | Done (rounds 1–3)                                   | M8.3   |
-| 10  | End-to-end acceptance       |                                                     |        |
+| 10  | End-to-end acceptance       | Prepared; owner acceptance test pending             | M10    |
 
 ## Milestone 0 — Repo and tooling (done)
 
@@ -321,6 +321,40 @@ Recovery: tasks 1–3 were mostly written but uncommitted; code_review's task me
 
 Tests: 731 passing (+5 real-Docker; the 21 eval sandbox tests, real Docker included, also pass locally). New this round: relay usage (streamed, plain, cut short), reservation held mid-run and settled from relay usage, timeout booked from actual usage and counted as a failure on both sides, reservation released when no API call was made, cap bookings left out of cost estimates, stream-json parsing and last tool calls, repo-root skill fetch, technology filter in scheduled evals. Details: DECISIONS "Milestone 8.3, round 3".
 
+## Milestone 10 — End-to-end acceptance (prepared; owner test pending)
+
+Done:
+
+- **Re-booking (owner decision):** the 7 timed-out runs of 2026-10-20 were re-booked at USD 0.05 in total, split by relay call count, with the ref "estimated from relay call counts, checked against console". `correctSpend` keeps the old amount, actor and reason in `budget_ledger_corrections` (migration 0010). The runs' `cost_source` is `estimate`, and cost estimates use measured costs only. chrome-devtools-mcp's summary mean cost is now USD 0.0073.
+- **Snapshot `2026.10.20-2`** (32 approved + 1 blocked): carries the corrected eval summary. A policy dry run (no LLM calls) showed no pending changes.
+- **Plugin 0.2.0:**
+  - the installed copy was cached on 2026-10-19 under `0.1.0`, before the M8.2 fixes, and Claude Code caches by version, so the version is bumped (a test keeps `plugin.json` and `SERVER_VERSION` equal);
+  - bundle rebuilt; `claude plugin validate` passes for the plugin and the marketplace;
+  - smoke test of the built bundle: 9 tools, signed snapshot synced, blocked warning raised.
+- **`docs/M10_ACCEPTANCE.md`:** the final owner test. It replaces `docs/M8_ACCEPTANCE.md`.
+- **`docs/MVP_REPORT.md`:** every PRD 17.2 criterion with its evidence. Status:
+  - 9 pass, with all owner-run items pending the owner test;
+  - #8 fails: 32 approved, 50 targeted;
+  - #11 not run: whole-setup vs default eval.
+
+Acceptance:
+
+- [ ] Every PRD 17.2 checkbox passes, or has an owner-accepted exception written in the report. Pending: the owner test, plus decisions on #8 and #11.
+
+Tests: 733 passing (+5 real-Docker in CI). New: `correctSpend` (re-booking with audit, and its refusals), plugin version consistency.
+
+## Backlog
+
+- **Postgres-family eval task set** (Postgres, Prisma, Neon, Redis items): deferred by the owner, 2026-10-20. Needs a Postgres (and Redis) service in the eval sandbox; today's database tasks use SQLite.
+- **Blocked-item detection for skills and plugins:** today the plugin checks `.mcp.json` only.
+- **Whole-setup eval arm** for PRD 17.2 #11 (see Open questions).
+
 ## Open questions
 
-- Owner: the 7 runs that timed out on 2026-10-20 are still booked at USD 1.50 each (USD 10.50). The relay logs from that batch count 35 API calls but have no token counts. At the highest per-call cost seen in the 26 completed runs, that is at most about USD 0.05. Options: re-book at the figure from the Anthropic console, re-book at the USD 0.05 estimate, or leave them at the cap.
+- **Owner, PRD 17.2 #8:** 32 approved items, 50 targeted. Options:
+  - (a) accept 32 as an MVP exception;
+  - (b) change the policy (for example, accept gate soft fails for official vendors, or decide category by rules plus one model for them);
+  - (c) wait for evals and discovery.
+  - Details: MVP_REPORT "Evidence 8".
+- **Owner, PRD 17.2 #11:** "recommended setup beats the default setup" has never been measured. It needs a whole-setup arm in the harness (free) and a paid run: about USD 0.7 to 1.4 for Haiku screening on the 20 tasks, about USD 5.4 more with Sonnet confirmation. Run it, or accept an exception?
+- **Owner:** run a fresh `discover` and `policy` (a few cents) before the final snapshot, as in plan M10 task 1?
